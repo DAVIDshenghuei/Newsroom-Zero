@@ -9,18 +9,37 @@ export default function HomePage() {
       </header>
 
       <section className="telegram-card">
-        <span className="telegram-icon" aria-hidden="true">✈️</span>
-        <div>
-          <h2>Try Newsroom Zero on Telegram</h2>
-          <p>Open the bot to receive the latest fact-gated audio bulletin.</p>
+        <div className="telegram-main">
+          <span className="telegram-icon" aria-hidden="true">✈️</span>
+          <div className="telegram-copy">
+            <h2>Try Newsroom Zero on Telegram</h2>
+            <p>Open the bot to receive the latest fact-gated audio bulletin.</p>
+          </div>
+          <a
+            className="telegram-button"
+            href="https://t.me/Newsroomhermesbot"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open Telegram Bot →
+          </a>
         </div>
         <a
-          className="telegram-button"
+          className="telegram-qr"
           href="https://t.me/Newsroomhermesbot"
           target="_blank"
           rel="noreferrer"
+          aria-label="Open the Newsroom Zero Telegram bot"
         >
-          Open Telegram Bot →
+          <span className="telegram-qr-frame">
+            <img
+              src="/newsroomhermesbot-qr.png"
+              width="370"
+              height="370"
+              alt="QR code to open the Newsroom Zero Telegram bot"
+            />
+          </span>
+          <span className="telegram-qr-label">Scan to open in Telegram</span>
         </a>
       </section>
 
