@@ -24,6 +24,21 @@ export default function HomePage() {
         </a>
       </section>
 
+      <section className="how-it-works" aria-labelledby="how-it-works-title">
+        <div className="section-heading">
+          <p className="section-kicker">Your personalized briefing in minutes</p>
+          <h2 id="how-it-works-title">How It Works</h2>
+        </div>
+        <ol className="how-it-works-list">
+          <li>Open the Telegram bot and press <strong>Start</strong>.</li>
+          <li>Enter the AI topics you want to follow.</li>
+          <li>Choose the analysis angles that matter to you.</li>
+          <li>Select a news range from the available options.</li>
+          <li>Review your preferences and press <strong>Generate Now</strong>.</li>
+          <li>Receive your fact-gated audio briefing in Telegram.</li>
+        </ol>
+      </section>
+
       <p><a className="episode-link" href="/episodes/latest">Listen to the latest verified episode →</a></p>
 
       <WaitlistForm />
