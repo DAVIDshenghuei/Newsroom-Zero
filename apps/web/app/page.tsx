@@ -30,6 +30,8 @@ export default function HomePage() {
         </div>
       </section>
 
+      <p><a className="episode-link" href="/episodes/latest">Listen to the latest verified episode →</a></p>
+
       <WaitlistForm />
 
       <footer>

@@ -59,6 +59,21 @@ h2 {
   margin-bottom: 2rem;
 }
 
+a {
+  color: var(--color-accent);
+}
+
+.episode-link,
+.back-link {
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.episode-link:hover,
+.back-link:hover {
+  text-decoration: underline;
+}
+
 /* ─── Pipeline Steps ───────────────────────────────────────── */
 
 .pipeline {
@@ -173,6 +188,85 @@ h2 {
 .form-feedback.error {
   color: #f87171;
   background: rgba(248, 113, 113, 0.1);
+}
+
+/* ─── Latest episode ───────────────────────────────────────── */
+
+.episode-page .back-link {
+  display: inline-block;
+  margin-bottom: 2rem;
+}
+
+.episode-page article,
+.episode-empty {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+
+.episode-page h2 {
+  margin: 0 0 0.25rem;
+}
+
+.episode-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.episode-heading time,
+.episode-empty p,
+.citations li span {
+  color: var(--color-text-muted);
+}
+
+.fact-badge {
+  flex: none;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.fact-badge.approved {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.12);
+}
+
+.fact-badge.blocked {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.episode-page audio {
+  width: 100%;
+  margin-top: 1.5rem;
+}
+
+.citations {
+  margin-top: 2rem;
+}
+
+.citations ol {
+  padding-left: 1.25rem;
+}
+
+.citations li {
+  padding: 0.4rem 0;
+}
+
+.citations li span {
+  display: block;
+  font-size: 0.8125rem;
+}
+
+@media (max-width: 560px) {
+  .episode-heading {
+    flex-direction: column;
+  }
 }
 
 /* ─── Footer ───────────────────────────────────────────────── */

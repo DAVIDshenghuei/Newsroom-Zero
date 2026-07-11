@@ -1,0 +1,29 @@
+{
+  "title": "Newsroom Zero — 2026-07-11",
+  "generatedAt": "2026-07-11T13:00:09.563Z",
+  "audioUrl": "/episodes/latest.mp3",
+  "stories": [
+    {
+      "headline": "A Jupiter-size planet that escaped its star's death",
+      "source": "Ars Technica",
+      "url": "https://arstechnica.com/science/2026/07/a-jupiter-size-planet-that-escaped-its-stars-death/"
+    },
+    {
+      "headline": "Meta pulls new AI image feature after days of backlash",
+      "source": "BBC News Technology",
+      "url": "https://www.bbc.co.uk/news/articles/c2dy6e8klw0o?at_campaign=rss&at_medium=RSS"
+    },
+    {
+      "headline": "Overhaul of public lands grazing regulations seeks to cut public involvement",
+      "source": "Ars Technica",
+      "url": "https://arstechnica.com/tech-policy/2026/07/overhaul-of-public-lands-grazing-regulations-seeks-to-cut-public-involvement/"
+    }
+  ],
+  "factGate": {
+    "id": "fact-gate-2026-07-11T12:52:27.022Z",
+    "checkedAt": "2026-07-11T12:52:27.022Z",
+    "approved": true,
+    "scriptStatus": "ready_for_voice",
+    "reasons": []
+  }
+}
