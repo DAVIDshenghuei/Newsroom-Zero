@@ -27,6 +27,7 @@ export * from './elevenlabs.js';
 export * from './voice.js';
 export * from './telegram.js';
 export * from './linkup.js';
+export * from './analysis.js';
 export * from './bot-copy.js';
 export * from './bot.js';
 

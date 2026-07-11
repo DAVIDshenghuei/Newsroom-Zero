@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { NewsroomBot, BotStateStore, createBriefingGenerator } from './bot.js';
+import { AnthropicAnalysisGenerator } from './analysis.js';
 import { ElevenLabsClient } from './elevenlabs.js';
 import { LinkupClient } from './linkup.js';
 import { TelegramClient } from './telegram.js';
@@ -15,11 +16,15 @@ async function main(): Promise<void> {
   const telegram = new TelegramClient({ token: required('TELEGRAM_BOT_TOKEN') });
   const linkup = new LinkupClient({ apiKey: required('LINKUP_API_KEY') });
   const synthesizer = new ElevenLabsClient({ apiKey: required('ELEVENLABS_API_KEY') });
+  const analysisGenerator = new AnthropicAnalysisGenerator({
+    apiKey: required('ANTHROPIC_API_KEY'),
+    model: process.env.ANTHROPIC_MODEL,
+  });
   const store = new BotStateStore(resolve(process.cwd(), 'artifacts/bot-state.json'));
   const bot = new NewsroomBot({
     store, telegram,
     generate: createBriefingGenerator({
-      telegram, linkup, synthesizer,
+      telegram, linkup, analysisGenerator, synthesizer,
       voiceId: process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID,
     }),
   });

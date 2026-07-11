@@ -37,6 +37,7 @@ export interface VoiceEpisodeInput {
   synthesizer: VoiceSynthesizer;
   voiceId: string;
   generatedAt: string;
+  title?: string;
 }
 
 const concise = (value: string): string => value.replace(/\s+/g, ' ').trim();
@@ -61,7 +62,7 @@ export async function createVoiceEpisode(input: VoiceEpisodeInput): Promise<{
   const bulletin = script.segments.map(({ text }) => concise(text)).filter(Boolean).join('\n\n');
   const audio = await input.synthesizer.synthesize(input.voiceId, bulletin);
   const episode = EpisodeMetadataSchema.parse({
-    title: `Newsroom Zero — ${input.generatedAt.slice(0, 10)}`,
+    title: input.title ?? `Newsroom Zero — ${input.generatedAt.slice(0, 10)}`,
     generatedAt: input.generatedAt,
     audioUrl: '/episodes/latest.mp3',
     stories: stories.map(({ headline, source, canonicalUrl }) => ({

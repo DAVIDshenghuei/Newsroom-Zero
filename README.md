@@ -2,7 +2,7 @@
 
 > An autonomous, fact-gated audio newsroom that turns personalized interests into cited Telegram briefings.
 
-[![Tests](https://img.shields.io/badge/tests-69%20passing-22c55e)](#quality-gates)
+[![Tests](https://img.shields.io/badge/tests-77%20passing-22c55e)](#quality-gates)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6)](https://www.typescriptlang.org/)
 [![Telegram](https://img.shields.io/badge/Telegram-Open%20Bot-26A5E4)](https://t.me/Newsroomhermesbot)
 
@@ -34,18 +34,21 @@ flowchart LR
     A[Telegram preferences] --> B[Linkup topic research]
     B --> C[Validate, deduplicate, and rank]
     C --> D[Fetch original sources]
-    D --> E[Citation-preserving script]
-    E --> F{Blocking Fact Gate}
-    F -- Approved --> G[ElevenLabs MP3]
-    G --> H[Telegram delivery]
-    G --> I[Latest web episode]
-    F -- Blocked --> J[No voice or publication]
+    D --> E[Anthropic structured analysis]
+    E --> F[Claim-level citations]
+    F --> G{Blocking Fact Gate}
+    G -- Approved --> H[ElevenLabs MP3]
+    H --> I[Telegram delivery]
+    H --> J[Latest web episode]
+    G -- Blocked --> K[No voice or publication]
 ```
 
 ### Safety Properties
 
 - Every factual script segment carries a story ID and canonical source URL.
 - Original article content must be fetched and verified before approval.
+- Every LLM-generated factual claim must cite one or more verified story IDs.
+- Unknown story IDs, malformed JSON, missing citations, and provider failures fail closed.
 - Unsupported or mismatched citations block the edition.
 - Voice generation and publication happen only after Fact Gate approval.
 - Linkup retries only transient network and `5xx` failures; invalid responses and persistent failures remain blocked.
@@ -56,14 +59,14 @@ flowchart LR
 - Interactive, per-chat Telegram onboarding and persisted workflow state
 - Linkup search and original-source fetch
 - Topic-aware story validation, deduplication, and ranking
-- Citation-preserving deterministic script generation
-- Research-aware blocking Fact Gate
+- Anthropic structured summaries, cross-story trends, strategic implications, and recommendations
+- Claim-level citation and research-aware blocking Fact Gate
 - ElevenLabs text-to-speech generation
 - Personalized Telegram MP3 delivery with sources
 - Local Next.js landing page and latest episode player
 - Live RSS/Atom ingestion for the standalone newsroom pipeline
 
-> **Current limitation:** the project does not yet use an LLM to produce abstractive summaries or strategic recommendations. The current script path is deterministic and citation-preserving by design.
+The interactive Bot uses grounded Anthropic analysis. The standalone RSS preparation commands retain their deterministic script path for backward compatibility.
 
 ## Local Setup
 
@@ -73,6 +76,7 @@ flowchart LR
 - pnpm `10+`
 - A Telegram bot token
 - A Linkup API key
+- An Anthropic API key
 - An ElevenLabs API key
 
 ### Install
@@ -90,6 +94,8 @@ Add your credentials to `.env`:
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 LINKUP_API_KEY=
+ANTHROPIC_API_KEY=
+ANTHROPIC_MODEL=claude-sonnet-4-5-20250929
 ELEVENLABS_API_KEY=
 ```
 
@@ -136,10 +142,11 @@ pnpm build
 
 Current verified baseline:
 
-- **69 tests passing**
+- **77 tests passing**
 - TypeScript typecheck passing
 - Next.js production build passing
-- Real Linkup → Fact Gate → ElevenLabs → Telegram flow exercised successfully
+- Real Linkup → Fact Gate → ElevenLabs → Telegram deterministic flow exercised successfully
+- Anthropic integration is covered by injected HTTP contract tests; a valid `ANTHROPIC_API_KEY` is required for live LLM verification
 
 ## Repository Layout
 
@@ -160,6 +167,7 @@ artifacts/                 Local generated workflow artifacts (gitignored)
 - Zod
 - Vitest
 - Linkup API
+- Anthropic Messages API
 - ElevenLabs API
 - Telegram Bot API
 

@@ -3,10 +3,13 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { z } from 'zod';
 import { BOT_COPY, WELCOME_MESSAGE } from './bot-copy.js';
+import {
+  runAnalysisFactGate, writeAnalysisBulletinScript, type AnalysisGenerator,
+} from './analysis.js';
 import { StoryCandidateSchema, type StoryCandidate } from './index.js';
 import { type LinkupResearchClient, type LinkupSearchResult, gatherLinkupEvidence } from './linkup.js';
 import {
-  BulletinScriptSchema, EditionArtifactSchema, rankStories, runResearchFactGate, writeBulletinScript,
+  EditionArtifactSchema, rankStories,
 } from './pipeline.js';
 import type { InlineKeyboardMarkup, TelegramClient, TelegramUpdate } from './telegram.js';
 import { createVoiceEpisode, DEFAULT_ELEVENLABS_VOICE_ID, type VoiceSynthesizer } from './voice.js';
@@ -227,6 +230,7 @@ export class NewsroomBot {
 
 export interface GeneratorOptions {
   linkup: LinkupResearchClient;
+  analysisGenerator: AnalysisGenerator;
   synthesizer: VoiceSynthesizer;
   telegram: Pick<BotTelegram, 'publish' | 'sendMessage'>;
   artifactsDirectory?: string;
@@ -242,10 +246,10 @@ export function createBriefingGenerator(options: GeneratorOptions) {
     const stories = rankStories(candidates);
     if (!stories.length) throw new Error('No usable stories were returned');
     const rundown = { id: `rundown-${createdAt}`, createdAt, stories };
-    const draft = writeBulletinScript(stories, createdAt);
     const evidence = await gatherLinkupEvidence(stories, options.linkup);
-    const factGate = runResearchFactGate(draft, stories, evidence, createdAt);
-    const script = BulletinScriptSchema.parse({ ...draft, status: factGate.scriptStatus });
+    const analysis = await options.analysisGenerator.generate({ preferences, stories, evidence });
+    const factGate = runAnalysisFactGate(analysis, stories, evidence, createdAt);
+    const script = writeAnalysisBulletinScript(analysis, stories, createdAt, factGate.scriptStatus);
     const edition = EditionArtifactSchema.parse({
       id: `edition-${createdAt}`, createdAt, status: factGate.scriptStatus, rundownId: rundown.id,
       scriptId: script.id, factGateId: factGate.id, storyIds: stories.map(({ id }) => id),
@@ -253,12 +257,13 @@ export function createBriefingGenerator(options: GeneratorOptions) {
     const artifactsDirectory = options.artifactsDirectory ?? resolve(process.cwd(), 'artifacts');
     await writeArtifacts(artifactsDirectory, {
       'story-candidates.json': candidates, 'rundown.json': rundown, 'linkup-evidence.json': evidence,
-      'script.json': script, 'fact-gate.json': factGate, 'edition.json': edition,
+      'llm-analysis.json': analysis, 'script.json': script, 'fact-gate.json': factGate, 'edition.json': edition,
     });
     if (!factGate.approved) throw new Error(`Fact Gate blocked the briefing: ${factGate.reasons.join('; ')}`);
     const output = await createVoiceEpisode({
       script, factGate, rundown, edition, synthesizer: options.synthesizer,
       voiceId: options.voiceId ?? DEFAULT_ELEVENLABS_VOICE_ID, generatedAt: createdAt,
+      title: `${analysis.title} — ${preferences.analysisAngles}`,
     });
     const episodesDirectory = options.episodesDirectory ?? resolve(process.cwd(), 'apps/web/public/episodes');
     await mkdir(episodesDirectory, { recursive: true });
