@@ -1,0 +1,85 @@
+import { z } from 'zod';
+
+// ─── StoryCandidate ───────────────────────────────────────────
+
+export const StoryStatus = z.enum(['pending', 'selected', 'rejected']);
+export type StoryStatus = z.infer<typeof StoryStatus>;
+
+export const StoryCandidateSchema = z.object({
+  id: z.string().min(1),
+  source: z.string().min(1),
+  headline: z.string().min(1),
+  body: z.string().min(1),
+  url: z.string().url().optional(),
+  fetchedAt: z.string().datetime(),
+  status: StoryStatus,
+});
+export type StoryCandidate = z.infer<typeof StoryCandidateSchema>;
+
+// ─── VerifiedClaim ────────────────────────────────────────────
+
+export const ClaimVerdict = z.enum(['true', 'false', 'misleading', 'unverifiable']);
+export type ClaimVerdict = z.infer<typeof ClaimVerdict>;
+
+export const VerifiedClaimSchema = z.object({
+  id: z.string().min(1),
+  storyId: z.string().min(1),
+  claim: z.string().min(1),
+  verdict: ClaimVerdict,
+  evidence: z.string().optional(),
+  verifiedAt: z.string().datetime(),
+});
+export type VerifiedClaim = z.infer<typeof VerifiedClaimSchema>;
+
+// ─── FactGateResult ───────────────────────────────────────────
+
+export const GateVerdict = z.enum(['approved', 'rejected', 'needs_review']);
+export type GateVerdict = z.infer<typeof GateVerdict>;
+
+export const FactGateResultSchema = z.object({
+  id: z.string().min(1),
+  storyId: z.string().min(1),
+  passed: z.boolean(),
+  claims: z.array(VerifiedClaimSchema),
+  overallVerdict: GateVerdict,
+  checkedAt: z.string().datetime(),
+});
+export type FactGateResult = z.infer<typeof FactGateResultSchema>;
+
+// ─── Rundown ──────────────────────────────────────────────────
+
+export const RundownStatus = z.enum(['draft', 'finalized', 'published']);
+export type RundownStatus = z.infer<typeof RundownStatus>;
+
+export const RundownSchema = z.object({
+  id: z.string().min(1),
+  editionId: z.string().min(1),
+  stories: z.array(z.string()),
+  createdAt: z.string().datetime(),
+  status: RundownStatus,
+});
+export type Rundown = z.infer<typeof RundownSchema>;
+
+// ─── EditionStatus ────────────────────────────────────────────
+
+export const EditionPhase = z.enum([
+  'creating',
+  'curating',
+  'fact_checking',
+  'voicing',
+  'publishing',
+  'published',
+  'failed',
+]);
+export type EditionPhase = z.infer<typeof EditionPhase>;
+
+export const EditionStatusSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  status: EditionPhase,
+  rundown: RundownSchema.optional(),
+  factGateResults: z.array(FactGateResultSchema).optional(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type EditionStatus = z.infer<typeof EditionStatusSchema>;

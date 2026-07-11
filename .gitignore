@@ -4,3 +4,7 @@ dist/
 .env
 .env.local
 *.log
+.turbo/
+coverage/
+*.tsbuildinfo
+.next-env.d.ts
