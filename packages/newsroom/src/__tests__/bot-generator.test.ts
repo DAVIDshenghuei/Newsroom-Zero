@@ -8,14 +8,17 @@ import type { AnalysisGenerator } from '../analysis.js';
 const preferences = { topics: 'AI Glasses', analysisAngles: 'Product Strategy', timeRange: 'Past 3 Days' as const };
 const searchResult = { name: 'A verified AI glasses launch', url: 'https://example.com/launch', content: 'A detailed launch report.', type: 'text' as const };
 
-const validAnalysis = (storyId: string) => ({
-  title: 'AI Glasses Strategy Briefing',
-  executiveSummary: { text: 'A verified launch is shaping product strategy.', sourceStoryIds: [storyId] },
-  storyBriefs: [{ storyId, headline: 'A verified AI glasses launch', summary: 'The launch introduces a practical product.', sourceStoryIds: [storyId] }],
-  crossStoryTrends: [{ text: 'Products are focusing on practical use.', sourceStoryIds: [storyId] }],
-  strategicImplications: [{ text: 'Teams should focus on repeatable value.', sourceStoryIds: [storyId] }],
-  actionableRecommendations: [{ text: 'Test one focused workflow.', sourceStoryIds: [storyId] }],
-});
+const validAnalysis = (storyId: string) => {
+  const supportingQuotes = [{ storyId, quote: 'A detailed launch report with practical product information.' }];
+  return {
+    title: 'AI Glasses Strategy Briefing',
+    executiveSummary: { text: 'A verified launch is shaping product strategy.', sourceStoryIds: [storyId], supportingQuotes },
+    storyBriefs: [{ storyId, headline: 'A verified AI glasses launch', summary: 'The launch introduces a practical product.', sourceStoryIds: [storyId], supportingQuotes }],
+    crossStoryTrends: [{ text: 'Products are focusing on practical use.', sourceStoryIds: [storyId], supportingQuotes }],
+    strategicImplications: [{ text: 'Teams should focus on repeatable value.', sourceStoryIds: [storyId], supportingQuotes }],
+    actionableRecommendations: [{ text: 'Test one focused workflow.', sourceStoryIds: [storyId], supportingQuotes }],
+  };
+};
 
 const setup = async (analysisGenerator: AnalysisGenerator) => {
   const directory = await mkdtemp(join(tmpdir(), 'newsroom-generator-'));

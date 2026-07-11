@@ -2,7 +2,7 @@
 
 > An autonomous, fact-gated audio newsroom that turns personalized interests into cited Telegram briefings.
 
-[![Tests](https://img.shields.io/badge/tests-77%20passing-22c55e)](#quality-gates)
+[![Tests](https://img.shields.io/badge/tests-81%20passing-22c55e)](#quality-gates)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6)](https://www.typescriptlang.org/)
 [![Telegram](https://img.shields.io/badge/Telegram-Open%20Bot-26A5E4)](https://t.me/Newsroomhermesbot)
 
@@ -48,6 +48,8 @@ flowchart LR
 - Every factual script segment carries a story ID and canonical source URL.
 - Original article content must be fetched and verified before approval.
 - Every LLM-generated factual claim must cite one or more verified story IDs.
+- Every claim must include exact supporting excerpts that are found in the cited verified originals.
+- Anthropic system instructions are separated from user preferences and source documents, which are treated as untrusted data.
 - Unknown story IDs, malformed JSON, missing citations, and provider failures fail closed.
 - Unsupported or mismatched citations block the edition.
 - Voice generation and publication happen only after Fact Gate approval.
@@ -142,7 +144,7 @@ pnpm build
 
 Current verified baseline:
 
-- **77 tests passing**
+- **81 tests passing**
 - TypeScript typecheck passing
 - Next.js production build passing
 - Real Linkup → Fact Gate → ElevenLabs → Telegram deterministic flow exercised successfully
