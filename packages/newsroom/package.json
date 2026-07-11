@@ -18,9 +18,11 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
+    "fast-xml-parser": "^5.3.8",
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "typescript": "^5.6.0"
   }
 }

@@ -38,6 +38,16 @@ describe('StoryCandidateSchema', () => {
     expect(result.url).toBeUndefined();
   });
 
+  it('accepts optional feed metadata without requiring it from existing callers', () => {
+    const result = StoryCandidateSchema.parse({
+      id: 'story-feed', source: 'Example', headline: 'Feed story', body: 'Body text.',
+      fetchedAt: '2026-07-11T12:00:00Z', status: 'pending',
+      sourceUrl: 'https://example.com/feed.xml', publishedAt: '2026-07-11T11:00:00Z',
+      author: 'Ada Reporter', externalId: 'entry-1',
+    });
+    expect(result.externalId).toBe('entry-1');
+  });
+
   it('rejects a story missing headline', () => {
     const input = {
       id: 'story-3',

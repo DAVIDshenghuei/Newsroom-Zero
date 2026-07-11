@@ -11,10 +11,17 @@ export const StoryCandidateSchema = z.object({
   headline: z.string().min(1),
   body: z.string().min(1),
   url: z.string().url().optional(),
+  sourceUrl: z.string().url().optional(),
+  publishedAt: z.string().datetime().optional(),
+  author: z.string().min(1).optional(),
+  externalId: z.string().min(1).optional(),
   fetchedAt: z.string().datetime(),
   status: StoryStatus,
 });
 export type StoryCandidate = z.infer<typeof StoryCandidateSchema>;
+
+export * from './feeds.js';
+export * from './http-fetcher.js';
 
 // ─── VerifiedClaim ────────────────────────────────────────────
 

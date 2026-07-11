@@ -5,7 +5,8 @@
     "lint": "pnpm -r run lint",
     "typecheck": "pnpm -r run typecheck",
     "test": "vitest run",
-    "build": "pnpm -r run build"
+    "build": "pnpm -r run build",
+    "newsroom:ingest": "pnpm --filter @newsroom-zero/newsroom build && node packages/newsroom/dist/cli.js"
   },
   "devDependencies": {
     "typescript": "^5.6.0",

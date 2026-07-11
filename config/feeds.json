@@ -1,0 +1,12 @@
+[
+  {
+    "id": "bbc-technology",
+    "name": "BBC News Technology",
+    "url": "https://feeds.bbci.co.uk/news/technology/rss.xml"
+  },
+  {
+    "id": "ars-technica",
+    "name": "Ars Technica",
+    "url": "https://feeds.arstechnica.com/arstechnica/index"
+  }
+]
