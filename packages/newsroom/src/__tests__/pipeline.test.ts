@@ -8,6 +8,7 @@ import {
   prepareEdition,
   rankStories,
   runFactGate,
+  runResearchFactGate,
   writeBulletinScript,
   type Citation,
   type StoryCandidate,
@@ -72,6 +73,20 @@ describe('script and Fact Gate', () => {
       citations: [{ storyId: 'a', url: 'https://example.com/a' }],
     });
     expect(runFactGate(script, ranked, fetchedAt).approved).toBe(true);
+  });
+
+  it('research gate blocks missing/failed original fetches and unusable searches without changing runFactGate', () => {
+    const ranked = rankStories([story({ id: 'a', source: 'Wire', headline: 'A precise headline', body: 'A precise body.' })]);
+    const script = writeBulletinScript(ranked, fetchedAt);
+    expect(runFactGate(script, ranked, fetchedAt).approved).toBe(true);
+    const decision = runResearchFactGate(script, ranked, [{
+      storyId: 'a', query: 'A precise headline Wire', searchResults: [],
+      original: { url: 'https://example.com/a' }, verificationStatus: 'failed', errors: ['fetch failed'],
+    }], fetchedAt);
+    expect(decision.approved).toBe(false);
+    expect(decision.reasons).toEqual(expect.arrayContaining([
+      'story a: original fetch not verified', 'story a: no usable Linkup search result',
+    ]));
   });
 
   it.each<[string, Citation[]]>([

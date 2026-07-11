@@ -8,9 +8,7 @@ import {
   RankedStorySchema,
 } from './pipeline.js';
 import { ElevenLabsClient } from './elevenlabs.js';
-import { assertVoiceEligible, createVoiceEpisode } from './voice.js';
-
-const DEFAULT_VOICE_ID = 'SAz9YHcvj6GT2YYXdXww';
+import { assertVoiceEligible, createVoiceEpisode, DEFAULT_ELEVENLABS_VOICE_ID } from './voice.js';
 
 async function readJson(path: string): Promise<unknown> {
   return JSON.parse(await readFile(path, 'utf8'));
@@ -40,7 +38,7 @@ async function main(): Promise<void> {
     rundown,
     edition,
     synthesizer: new ElevenLabsClient({ apiKey }),
-    voiceId: process.env.ELEVENLABS_VOICE_ID || DEFAULT_VOICE_ID,
+    voiceId: process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID,
     generatedAt: new Date().toISOString(),
   });
   await mkdir(publicEpisodes, { recursive: true });

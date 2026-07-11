@@ -40,6 +40,13 @@ export class HttpFeedFetcher implements FeedFetcher {
         result += decoder.decode(value, { stream: true });
       }
       return result + decoder.decode();
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        const timeoutError = new Error(`Feed ${source.id} timed out after ${this.timeoutMs}ms`);
+        timeoutError.name = 'AbortError';
+        throw timeoutError;
+      }
+      throw error;
     } finally {
       clearTimeout(timeout);
     }

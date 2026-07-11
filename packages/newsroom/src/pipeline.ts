@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { StoryCandidate } from './index.js';
+import type { LinkupEvidence } from './linkup.js';
 
 const PipelineStoryCandidateSchema = z.object({
   id: z.string().min(1),
@@ -202,6 +203,30 @@ export function runFactGate(script: BulletinScript, stories: RankedStory[], chec
     approved,
     scriptStatus: approved ? 'ready_for_voice' : 'blocked',
     reasons,
+  });
+}
+
+export function runResearchFactGate(
+  script: BulletinScript,
+  stories: RankedStory[],
+  evidence: LinkupEvidence[],
+  checkedAt: string,
+): FactGateDecision {
+  const base = runFactGate(script, stories, checkedAt);
+  const byStory = new Map(evidence.map((item) => [item.storyId, item]));
+  const reasons = [...base.reasons];
+  for (const story of stories) {
+    const item = byStory.get(story.id);
+    if (!item || item.verificationStatus !== 'verified' || !item.original.markdown?.trim()) {
+      reasons.push(`story ${story.id}: original fetch not verified`);
+    }
+    if (!item?.searchResults.some((result) => result.content.trim().length > 0)) {
+      reasons.push(`story ${story.id}: no usable Linkup search result`);
+    }
+  }
+  const approved = reasons.length === 0;
+  return FactGateDecisionSchema.parse({
+    ...base, approved, scriptStatus: approved ? 'ready_for_voice' : 'blocked', reasons,
   });
 }
 

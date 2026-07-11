@@ -18,6 +18,20 @@ export interface TelegramPublication {
   audio: Uint8Array;
 }
 
+export interface InlineKeyboardMarkup {
+  inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+}
+
+export interface TelegramUpdate {
+  update_id: number;
+  message?: { chat: { id: number | string }; text?: string };
+  callback_query?: {
+    id: string;
+    data?: string;
+    message?: { chat: { id: number | string } };
+  };
+}
+
 const isMp3 = (bytes: Uint8Array): boolean =>
   (bytes.length >= 3 && bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33)
   || (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0);
@@ -52,6 +66,50 @@ export class TelegramClient {
     this.baseUrl = (options.baseUrl ?? 'https://api.telegram.org').replace(/\/$/, '');
   }
 
+  async getUpdates(offset: number, timeout = 30): Promise<TelegramUpdate[]> {
+    const result = await this.request('getUpdates', { offset, timeout });
+    if (!Array.isArray(result)) throw new Error('Telegram getUpdates response did not include updates');
+    return result as TelegramUpdate[];
+  }
+
+  async sendMessage(chatId: string, text: string, replyMarkup?: InlineKeyboardMarkup): Promise<number> {
+    const result = await this.request('sendMessage', {
+      chat_id: chatId, text, ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+    });
+    const messageId = result && typeof result === 'object' && 'message_id' in result ? result.message_id : undefined;
+    if (typeof messageId !== 'number') throw new Error('Telegram response did not include a message_id');
+    return messageId;
+  }
+
+  async answerCallbackQuery(callbackQueryId: string): Promise<void> {
+    await this.request('answerCallbackQuery', { callback_query_id: callbackQueryId });
+  }
+
+  private async request(method: string, body: unknown): Promise<unknown> {
+    let response: Response;
+    try {
+      response = await this.fetch(`${this.baseUrl}/bot${this.token}/${method}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message.replaceAll(this.token, '[REDACTED]') : '';
+      throw new Error(`Telegram ${method} request failed${detail ? `: ${detail}` : ''}`);
+    }
+    if (!response.ok) throw new Error(`Telegram ${method} request failed (${response.status})`);
+    let payload: unknown;
+    try { payload = await response.json(); } catch { throw new Error(`Telegram ${method} returned invalid JSON`); }
+    if (!payload || typeof payload !== 'object' || !('ok' in payload) || payload.ok !== true) {
+      const description = 'description' in (payload as object) && typeof (payload as { description?: unknown }).description === 'string'
+        ? `: ${(payload as { description: string }).description.replaceAll(this.token, '[REDACTED]')}` : '';
+      throw new Error(`Telegram rejected ${method}${description}`);
+    }
+    return 'result' in payload ? payload.result : undefined;
+  }
+
+  private redact(value: string): string {
+    return value.replaceAll(this.token, '[REDACTED]');
+  }
+
   async publish(publication: TelegramPublication): Promise<number> {
     if (!publication.metadata.factGate.approved) {
       throw new Error('Fact Gate approval is required for Telegram publication');
@@ -69,10 +127,13 @@ export class TelegramClient {
     body.set('caption', createTelegramCaption(publication.metadata));
     body.set('parse_mode', 'HTML');
 
-    const response = await this.fetch(`${this.baseUrl}/bot${this.token}/sendAudio`, {
-      method: 'POST',
-      body,
-    });
+    let response: Response;
+    try {
+      response = await this.fetch(`${this.baseUrl}/bot${this.token}/sendAudio`, { method: 'POST', body });
+    } catch (error) {
+      const detail = error instanceof Error ? `: ${this.redact(error.message)}` : '';
+      throw new Error(`Telegram sendAudio request failed${detail}`);
+    }
     if (!response.ok) throw new Error(`Telegram request failed (${response.status})`);
 
     let payload: unknown;
@@ -83,7 +144,7 @@ export class TelegramClient {
     }
     if (!payload || typeof payload !== 'object' || !('ok' in payload) || payload.ok !== true) {
       const description = payload && typeof payload === 'object' && 'description' in payload
-        && typeof payload.description === 'string' ? `: ${payload.description}` : '';
+        && typeof payload.description === 'string' ? `: ${this.redact(payload.description)}` : '';
       throw new Error(`Telegram rejected publication${description}`);
     }
     const result = 'result' in payload ? payload.result : undefined;

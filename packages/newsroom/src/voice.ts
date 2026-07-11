@@ -10,6 +10,8 @@ import {
   type RankedStory,
 } from './pipeline.js';
 
+export const DEFAULT_ELEVENLABS_VOICE_ID = 'SAz9YHcvj6GT2YYXdXww';
+
 export const EpisodeMetadataSchema = z.object({
   title: z.string().min(1),
   generatedAt: z.string().datetime(),

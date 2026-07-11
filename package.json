@@ -6,10 +6,11 @@
     "typecheck": "pnpm --filter @newsroom-zero/newsroom build && pnpm -r run typecheck",
     "test": "vitest run",
     "build": "pnpm -r run build",
-    "newsroom:ingest": "pnpm --filter @newsroom-zero/newsroom build && node packages/newsroom/dist/cli.js",
-    "newsroom:prepare": "pnpm --filter @newsroom-zero/newsroom build && node packages/newsroom/dist/cli.js",
+    "newsroom:ingest": "pnpm --filter @newsroom-zero/newsroom build && node --env-file=.env packages/newsroom/dist/cli.js",
+    "newsroom:prepare": "pnpm --filter @newsroom-zero/newsroom build && node --env-file=.env packages/newsroom/dist/cli.js",
     "newsroom:voice": "pnpm --filter @newsroom-zero/newsroom build && node --env-file=.env packages/newsroom/dist/voice-cli.js",
-    "newsroom:publish-telegram": "pnpm --filter @newsroom-zero/newsroom build && node --env-file=.env packages/newsroom/dist/telegram-cli.js"
+    "newsroom:publish-telegram": "pnpm --filter @newsroom-zero/newsroom build && node --env-file=.env packages/newsroom/dist/telegram-cli.js",
+    "newsroom:bot": "pnpm --filter @newsroom-zero/newsroom build && node --env-file=.env packages/newsroom/dist/bot-cli.js"
   },
   "devDependencies": {
     "typescript": "^5.6.0",
