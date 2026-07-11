@@ -34,6 +34,16 @@ describe('LinkupClient', () => {
     }));
   });
 
+  it('retries transient fetch request failures before succeeding', async () => {
+    const fetch = vi.fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ markdown: '# Original\nVerified body' }), { status: 200 }));
+    const client = new LinkupClient({ apiKey: 'fixture-value', fetch });
+
+    await expect(client.fetch('https://example.com/original')).resolves.toBe('# Original\nVerified body');
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it('strictly rejects malformed responses and never exposes the API key', async () => {
     const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ results: [{ name: 'bad' }], extra: true }), { status: 200 }));
     const client = new LinkupClient({ apiKey: 'never-print-me', fetch });

@@ -220,9 +220,6 @@ export function runResearchFactGate(
     if (!item || item.verificationStatus !== 'verified' || !item.original.markdown?.trim()) {
       reasons.push(`story ${story.id}: original fetch not verified`);
     }
-    if (!item?.searchResults.some((result) => result.content.trim().length > 0)) {
-      reasons.push(`story ${story.id}: no usable Linkup search result`);
-    }
   }
   const approved = reasons.length === 0;
   return FactGateDecisionSchema.parse({

@@ -66,10 +66,23 @@ export class LinkupClient implements LinkupResearchClient {
   }
 
   async fetch(url: string): Promise<string> {
-    const value = await this.post('/v1/fetch', {
-      url, extractImages: false, includeRawHtml: false, renderJs: false,
-    }, LinkupFetchResponseSchema, 'fetch');
-    return value.markdown;
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const value = await this.post('/v1/fetch', {
+          url, extractImages: false, includeRawHtml: false, renderJs: false,
+        }, LinkupFetchResponseSchema, 'fetch');
+        return value.markdown;
+      } catch (error) {
+        lastError = error;
+        const message = error instanceof Error ? error.message : '';
+        const transient = message.startsWith('Linkup fetch request failed:')
+          || /Linkup fetch request failed with status 5\d\d/.test(message);
+        if (!transient || attempt === 2) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+      }
+    }
+    throw lastError;
   }
 
   private async post<T>(path: string, body: unknown, schema: z.ZodType<T>, operation: string): Promise<T> {

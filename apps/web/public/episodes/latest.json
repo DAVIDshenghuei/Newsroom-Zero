@@ -1,27 +1,27 @@
 {
   "title": "Newsroom Zero — 2026-07-11",
-  "generatedAt": "2026-07-11T13:00:09.563Z",
+  "generatedAt": "2026-07-11T14:04:08.968Z",
   "audioUrl": "/episodes/latest.mp3",
   "stories": [
     {
-      "headline": "A Jupiter-size planet that escaped its star's death",
-      "source": "Ars Technica",
-      "url": "https://arstechnica.com/science/2026/07/a-jupiter-size-planet-that-escaped-its-stars-death/"
+      "headline": "Meta added a privacy-safety feature to its AI glasses but is reportedly testing a ‘super-sensing’ prototype | Fortune",
+      "source": "fortune.com",
+      "url": "https://fortune.com/2026/07/11/meta-ray-ban-smart-glasses-camera-led-light-privacy-safeguard-super-sensing-ai-prototype-covert-recording-concerns/"
     },
     {
-      "headline": "Meta pulls new AI image feature after days of backlash",
-      "source": "BBC News Technology",
-      "url": "https://www.bbc.co.uk/news/articles/c2dy6e8klw0o?at_campaign=rss&at_medium=RSS"
+      "headline": "Meta wants its AI glasses to seem less creepy. Its AI strategy says otherwise. | TechCrunch",
+      "source": "techcrunch.com",
+      "url": "https://techcrunch.com/2026/07/08/meta-wants-its-ai-glasses-to-seem-less-creepy-its-ai-strategy-says-otherwise/"
     },
     {
-      "headline": "Overhaul of public lands grazing regulations seeks to cut public involvement",
-      "source": "Ars Technica",
-      "url": "https://arstechnica.com/tech-policy/2026/07/overhaul-of-public-lands-grazing-regulations-seeks-to-cut-public-involvement/"
+      "headline": "AI smart glasses are behind Big Tech's new data obsession: your senses | Vogue",
+      "source": "vogue.com",
+      "url": "https://www.vogue.com/article/the-next-ai-battleground-your-senses"
     }
   ],
   "factGate": {
-    "id": "fact-gate-2026-07-11T12:52:27.022Z",
-    "checkedAt": "2026-07-11T12:52:27.022Z",
+    "id": "fact-gate-2026-07-11T14:04:08.968Z",
+    "checkedAt": "2026-07-11T14:04:08.968Z",
     "approved": true,
     "scriptStatus": "ready_for_voice",
     "reasons": []
