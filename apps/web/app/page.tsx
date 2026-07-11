@@ -1,14 +1,5 @@
 import { WaitlistForm } from './waitlist-form';
 
-const pipeline = [
-  { emoji: '📡', label: 'Live Feeds', desc: 'Ingest from RSS, Twitter, webhooks' },
-  { emoji: '✏️', label: 'Editor', desc: 'Select and rank stories for each edition' },
-  { emoji: '📝', label: 'Writer', desc: 'Draft concise news briefs' },
-  { emoji: '⚖️', label: 'Fact Judge', desc: 'Verify claims, reject misinformation' },
-  { emoji: '🎙️', label: 'Voice', desc: 'Generate natural audio narration' },
-  { emoji: '📬', label: 'Telegram', desc: 'Dispatch to subscribers' },
-] as const;
-
 export default function HomePage() {
   return (
     <div className="container">
@@ -17,17 +8,20 @@ export default function HomePage() {
         <p className="subtitle">Autonomous multi-agent newsroom — from live feeds to Telegram, end-to-end.</p>
       </header>
 
-      <section>
-        <h2>Pipeline</h2>
-        <div className="pipeline">
-          {pipeline.map((step) => (
-            <div className="step" key={step.label}>
-              <span className="emoji">{step.emoji}</span>
-              <span className="label">{step.label}</span>
-              <span className="desc">{step.desc}</span>
-            </div>
-          ))}
+      <section className="telegram-card">
+        <span className="telegram-icon" aria-hidden="true">✈️</span>
+        <div>
+          <h2>Try Newsroom Zero on Telegram</h2>
+          <p>Open the bot to receive the latest fact-gated audio bulletin.</p>
         </div>
+        <a
+          className="telegram-button"
+          href="https://t.me/Newsroomhermesbot"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Open Telegram Bot →
+        </a>
       </section>
 
       <p><a className="episode-link" href="/episodes/latest">Listen to the latest verified episode →</a></p>
