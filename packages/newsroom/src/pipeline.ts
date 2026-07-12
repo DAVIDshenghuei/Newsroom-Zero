@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { StoryCandidate } from './index.js';
-import type { LinkupEvidence } from './linkup.js';
+import type { LinkupEvidence, PublicationWindow } from './linkup.js';
 
 const PipelineStoryCandidateSchema = z.object({
   id: z.string().min(1),
@@ -92,7 +92,35 @@ export function normalizedHeadlineFingerprint(headline: string): string {
 }
 
 function recency(story: StoryCandidate): number {
-  return Date.parse(story.publishedAt ?? story.fetchedAt);
+  return story.publishedAt ? Date.parse(story.publishedAt) : 0;
+}
+
+export interface PublicationFilterReport {
+  window: PublicationWindow;
+  eligible: StoryCandidate[];
+  rejected: Array<{ id: string; url?: string; publishedAt?: string; reason: 'missing publishedAt' | 'outside publication window' | 'future publishedAt' }>;
+}
+
+export function filterCandidatesByPublicationWindow(
+  candidates: StoryCandidate[], window: PublicationWindow,
+): PublicationFilterReport {
+  const from = Date.parse(window.from);
+  const to = Date.parse(window.to);
+  const eligible: StoryCandidate[] = [];
+  const rejected: PublicationFilterReport['rejected'] = [];
+  for (const candidate of candidates) {
+    const published = candidate.publishedAt ? Date.parse(candidate.publishedAt) : Number.NaN;
+    if (!Number.isFinite(published)) {
+      rejected.push({ id: candidate.id, url: candidate.url, reason: 'missing publishedAt' });
+    } else if (published > to) {
+      rejected.push({ id: candidate.id, url: candidate.url, publishedAt: candidate.publishedAt, reason: 'future publishedAt' });
+    } else if (published < from) {
+      rejected.push({ id: candidate.id, url: candidate.url, publishedAt: candidate.publishedAt, reason: 'outside publication window' });
+    } else {
+      eligible.push(candidate);
+    }
+  }
+  return { window, eligible, rejected };
 }
 
 function compareStories(left: StoryCandidate, right: StoryCandidate): number {
@@ -211,6 +239,7 @@ export function runResearchFactGate(
   stories: RankedStory[],
   evidence: LinkupEvidence[],
   checkedAt: string,
+  publicationWindow?: PublicationWindow,
 ): FactGateDecision {
   const base = runFactGate(script, stories, checkedAt);
   const byStory = new Map(evidence.map((item) => [item.storyId, item]));
@@ -219,6 +248,12 @@ export function runResearchFactGate(
     const item = byStory.get(story.id);
     if (!item || item.verificationStatus !== 'verified' || !item.original.markdown?.trim()) {
       reasons.push(`story ${story.id}: original fetch not verified`);
+    }
+    if (publicationWindow) {
+      const published = story.publishedAt ? Date.parse(story.publishedAt) : Number.NaN;
+      if (!Number.isFinite(published)) reasons.push(`story ${story.id}: missing publishedAt`);
+      else if (published > Date.parse(publicationWindow.to)) reasons.push(`story ${story.id}: future publishedAt`);
+      else if (published < Date.parse(publicationWindow.from)) reasons.push(`story ${story.id}: publishedAt outside publication window`);
     }
   }
   const approved = reasons.length === 0;

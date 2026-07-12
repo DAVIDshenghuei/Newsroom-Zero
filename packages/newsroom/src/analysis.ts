@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { LinkupEvidence } from './linkup.js';
+import type { LinkupEvidence, PublicationWindow } from './linkup.js';
 import {
   BulletinScriptSchema, FactGateDecisionSchema, runResearchFactGate, writeBulletinScript,
   type BulletinScript, type FactGateDecision, type RankedStory,
@@ -142,8 +142,8 @@ const analysisItems = (analysis: LlmAnalysis): Array<CitedAnalysisItem & { label
   ...analysis.actionableRecommendations.map((item) => ({ ...item, label: 'Actionable recommendation' })),
 ];
 
-export function runAnalysisFactGate(value: unknown, stories: RankedStory[], evidence: LinkupEvidence[], checkedAt: string): FactGateDecision {
-  const sourceGate = runResearchFactGate(writeBulletinScript(stories, checkedAt), stories, evidence, checkedAt);
+export function runAnalysisFactGate(value: unknown, stories: RankedStory[], evidence: LinkupEvidence[], checkedAt: string, publicationWindow?: PublicationWindow): FactGateDecision {
+  const sourceGate = runResearchFactGate(writeBulletinScript(stories, checkedAt), stories, evidence, checkedAt, publicationWindow);
   const reasons = [...sourceGate.reasons];
   const parsed = LlmAnalysisSchema.safeParse(value);
   if (!parsed.success) reasons.push('invalid structured analysis or missing claim citations');

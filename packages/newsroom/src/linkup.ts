@@ -32,10 +32,14 @@ export const LinkupEvidenceSchema = z.object({
   errors: z.array(z.string()),
 }).strict();
 export type LinkupEvidence = z.infer<typeof LinkupEvidenceSchema>;
+export interface LinkupFetchedDocument { markdown: string; rawHtml?: string }
+
+export interface PublicationWindow { from: string; to: string }
 
 export interface LinkupResearchClient {
-  search(query: string): Promise<LinkupSearchResult[]>;
+  search(query: string, window?: PublicationWindow): Promise<LinkupSearchResult[]>;
   fetch(url: string): Promise<string>;
+  fetchDocument?(url: string): Promise<LinkupFetchedDocument>;
 }
 
 export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -58,21 +62,30 @@ export class LinkupClient implements LinkupResearchClient {
     this.baseUrl = (options.baseUrl ?? 'https://api.linkup.so').replace(/\/$/, '');
   }
 
-  async search(query: string): Promise<LinkupSearchResult[]> {
+  async search(query: string, window?: PublicationWindow): Promise<LinkupSearchResult[]> {
     const value = await this.post('/v1/search', {
       q: query, depth: 'standard', outputType: 'searchResults',
+      ...(window ? { fromDate: window.from.slice(0, 10), toDate: window.to.slice(0, 10) } : {}),
     }, LinkupSearchResponseSchema, 'search');
     return value.results;
   }
 
   async fetch(url: string): Promise<string> {
+    return (await this.fetchWithRetries(url, false)).markdown;
+  }
+
+  async fetchDocument(url: string): Promise<LinkupFetchedDocument> {
+    return this.fetchWithRetries(url, true);
+  }
+
+  private async fetchWithRetries(url: string, includeRawHtml: boolean): Promise<LinkupFetchedDocument> {
     let lastError: unknown;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         const value = await this.post('/v1/fetch', {
-          url, extractImages: false, includeRawHtml: false, renderJs: false,
+          url, extractImages: false, includeRawHtml, renderJs: false,
         }, LinkupFetchResponseSchema, 'fetch');
-        return value.markdown;
+        return { markdown: value.markdown, ...(value.rawHtml ? { rawHtml: value.rawHtml } : {}) };
       } catch (error) {
         lastError = error;
         const message = error instanceof Error ? error.message : '';
@@ -114,17 +127,47 @@ export class LinkupClient implements LinkupResearchClient {
   }
 }
 
+const toIso = (value: string): string | undefined => {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : undefined;
+};
+
+/** Extract only explicitly labelled or machine-readable publication dates. */
+export function extractPublishedAt(content: string): string | undefined {
+  const machinePatterns = [
+    /["']datePublished["']\s*:\s*["']([^"']+)["']/i,
+    /<meta\b[^>]*(?:property|name)=["'](?:article:published_time|datePublished)["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+    /<meta\b[^>]*content=["']([^"']+)["'][^>]*(?:property|name)=["'](?:article:published_time|datePublished)["'][^>]*>/i,
+    /<time\b[^>]*datetime=["']([^"']+)["'][^>]*>/i,
+  ];
+  for (const pattern of machinePatterns) {
+    const match = content.match(pattern);
+    if (match) return toIso(match[1]);
+  }
+  const month = '(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)';
+  const visiblePatterns = [
+    new RegExp(`\\b(?:Published|Posted)\\s*(?:on)?[:\\s]+(${month}\\s+\\d{1,2},\\s+\\d{4})\\b`, 'i'),
+    new RegExp(`\\b(?:Published|Posted)\\s*(?:on)?[:\\s]+(\\d{1,2}\\s+${month}\\s+\\d{4})\\b`, 'i'),
+  ];
+  for (const pattern of visiblePatterns) {
+    const match = content.match(pattern);
+    if (match) return toIso(`${match[1]} UTC`);
+  }
+  return undefined;
+}
+
 const safeEvidenceError = (error: unknown): string =>
   error instanceof Error && error.message ? error.message : 'Unknown Linkup error';
 
 export async function gatherLinkupSearchEvidence(
   stories: RankedStory[], client: Pick<LinkupResearchClient, 'search'>,
+  window?: PublicationWindow,
 ): Promise<LinkupEvidence[]> {
   return Promise.all(stories.map(async (story) => {
     const query = `${story.headline.trim()} ${story.source.trim()}`;
     try {
       return LinkupEvidenceSchema.parse({
-        storyId: story.id, query, searchResults: await client.search(query),
+        storyId: story.id, query, searchResults: await client.search(query, window),
         original: { url: story.canonicalUrl }, verificationStatus: 'pending', errors: [],
       });
     } catch (error) {

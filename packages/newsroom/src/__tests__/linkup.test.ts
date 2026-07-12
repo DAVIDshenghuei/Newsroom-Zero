@@ -3,6 +3,7 @@ import {
   LinkupClient,
   LinkupEvidenceSchema,
   gatherLinkupEvidence,
+  extractPublishedAt,
   rankStories,
   type StoryCandidate,
 } from '../index.js';
@@ -22,15 +23,26 @@ describe('LinkupClient', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ markdown: '# Original\nVerified body' }), { status: 200 }));
     const client = new LinkupClient({ apiKey: 'top-secret', fetch });
 
-    await expect(client.search('Exact headline Example Wire')).resolves.toHaveLength(1);
+    await expect(client.search('Exact headline Example Wire', { from: '2026-07-08T12:00:00.000Z', to: '2026-07-11T12:00:00.000Z' })).resolves.toHaveLength(1);
     await expect(client.fetch('https://example.com/original')).resolves.toBe('# Original\nVerified body');
     expect(fetch).toHaveBeenNthCalledWith(1, 'https://api.linkup.so/v1/search', expect.objectContaining({
       method: 'POST', headers: expect.objectContaining({ Authorization: 'Bearer top-secret' }),
-      body: JSON.stringify({ q: 'Exact headline Example Wire', depth: 'standard', outputType: 'searchResults' }),
+      body: JSON.stringify({ q: 'Exact headline Example Wire', depth: 'standard', outputType: 'searchResults', fromDate: '2026-07-08', toDate: '2026-07-11' }),
     }));
     expect(fetch).toHaveBeenNthCalledWith(2, 'https://api.linkup.so/v1/fetch', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({ url: 'https://example.com/original', extractImages: false, includeRawHtml: false, renderJs: false }),
+    }));
+  });
+
+  it('fetches a production document with raw HTML while preserving markdown', async () => {
+    const rawHtml = '<meta property="article:published_time" content="2026-07-10T08:00:00Z">';
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ markdown: '# Article', rawHtml }), { status: 200 }));
+    const client = new LinkupClient({ apiKey: 'top-secret', fetch });
+
+    await expect(client.fetchDocument('https://example.com/article')).resolves.toEqual({ markdown: '# Article', rawHtml });
+    expect(fetch).toHaveBeenCalledWith('https://api.linkup.so/v1/fetch', expect.objectContaining({
+      body: JSON.stringify({ url: 'https://example.com/article', extractImages: false, includeRawHtml: true, renderJs: false }),
     }));
   });
 
@@ -49,6 +61,27 @@ describe('LinkupClient', () => {
     const client = new LinkupClient({ apiKey: 'never-print-me', fetch });
     await expect(client.search('query')).rejects.toThrow('Invalid Linkup search response');
     await expect(client.search('query')).rejects.not.toThrow('never-print-me');
+  });
+});
+
+describe('extractPublishedAt', () => {
+  it.each([
+    ['JSON-LD', '<script type="application/ld+json">{"datePublished":"2026-07-11T09:15:00Z"}</script>', '2026-07-11T09:15:00.000Z'],
+    ['meta', '<meta property="article:published_time" content="2026-07-10T08:00:00+02:00">', '2026-07-10T06:00:00.000Z'],
+    ['time', '<time datetime="2026-07-09T07:30:00Z">Today</time>', '2026-07-09T07:30:00.000Z'],
+    ['visible US date', 'Published Jan 16, 2026', '2026-01-16T00:00:00.000Z'],
+    ['visible long date', 'Published 20 January 2026', '2026-01-20T00:00:00.000Z'],
+    ['visible month date', 'Published June 2, 2026', '2026-06-02T00:00:00.000Z'],
+  ])('extracts a conservative %s publication date', (_label, content, expected) => {
+    expect(extractPublishedAt(content)).toBe(expected);
+  });
+
+  it('does not guess a date from unrelated numeric content', () => {
+    expect(extractPublishedAt('The company reported 2026 users and $16 million.')).toBeUndefined();
+  });
+
+  it('does not treat Updated-only visible text as publication time', () => {
+    expect(extractPublishedAt('Updated June 2, 2026')).toBeUndefined();
   });
 });
 

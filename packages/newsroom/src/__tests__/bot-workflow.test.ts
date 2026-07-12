@@ -2,7 +2,7 @@ import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { BotStateStore, NewsroomBot, createResearchQuery, linkupResultsToCandidates, splitTelegramText } from '../bot.js';
+import { BotStateStore, NewsroomBot, createResearchQuery, linkupResultsToCandidates, resolvePublicationWindow, splitTelegramText } from '../bot.js';
 import type { LinkupSearchResult } from '../linkup.js';
 
 const results: LinkupSearchResult[] = [{
@@ -10,6 +10,15 @@ const results: LinkupSearchResult[] = [{
 }];
 
 describe('topic-aware bot workflow', () => {
+  it.each([
+    ['Past 24 Hours', '2026-07-10T12:34:56.000Z'],
+    ['Past 3 Days', '2026-07-08T12:34:56.000Z'],
+    ['Past 7 Days', '2026-07-04T12:34:56.000Z'],
+  ] as const)('resolves %s to an exact UTC publication window', (range, from) => {
+    expect(resolvePublicationWindow(range, new Date('2026-07-11T12:34:56.000Z'))).toEqual({
+      from, to: '2026-07-11T12:34:56.000Z',
+    });
+  });
   it('splits long Telegram text below the platform limit without losing content', () => {
     const text = `${'word '.repeat(1_000)}\n\n${'source '.repeat(700)}`.trim();
     const chunks = splitTelegramText(text);
@@ -85,5 +94,20 @@ describe('topic-aware bot workflow', () => {
     release();
     await Promise.all([first, second]);
     expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a useful English message when the strict window has no stories', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'newsroom-bot-'));
+    const store = new BotStateStore(join(directory, 'state.json'));
+    await store.setChat('42', {
+      step: 'confirm', topics: 'AI Agents', analysisAngles: 'Technical Trends', timeRange: 'Past 24 Hours', deliveryMode: 'text_only',
+    });
+    const telegram = { sendMessage: vi.fn().mockResolvedValue(1), answerCallbackQuery: vi.fn(), publish: vi.fn() };
+    const bot = new NewsroomBot({
+      store, telegram,
+      generate: vi.fn().mockRejectedValue(new Error('No stories were published within Past 24 Hours. Please try a broader news range.')),
+    });
+    await bot.handleUpdate({ update_id: 11, callback_query: { id: 'cb', data: 'generate_now', message: { chat: { id: 42 } } } });
+    await vi.waitFor(() => expect(telegram.sendMessage).toHaveBeenCalledWith('42', expect.stringContaining('broader news range')));
   });
 });

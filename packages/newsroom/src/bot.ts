@@ -7,9 +7,12 @@ import {
   runAnalysisFactGate, writeAnalysisBulletinScript, type AnalysisGenerator,
 } from './analysis.js';
 import { StoryCandidateSchema, type StoryCandidate } from './index.js';
-import { type LinkupResearchClient, type LinkupSearchResult, gatherLinkupEvidence } from './linkup.js';
 import {
-  EditionArtifactSchema, rankStories,
+  LinkupEvidenceSchema, extractPublishedAt, gatherLinkupSearchEvidence,
+  type LinkupResearchClient, type LinkupSearchResult,
+} from './linkup.js';
+import {
+  EditionArtifactSchema, filterCandidatesByPublicationWindow, rankStories,
 } from './pipeline.js';
 import type { InlineKeyboardMarkup, TelegramClient, TelegramUpdate } from './telegram.js';
 import { concise, DEFAULT_ELEVENLABS_VOICE_ID, EpisodeMetadataSchema, type VoiceSynthesizer } from './voice.js';
@@ -17,6 +20,11 @@ import type { SynthesizeOutcomeFunction, VoiceSynthesisOutcome } from './pocket-
 
 export const TIME_RANGES = ['Past 24 Hours', 'Past 3 Days', 'Past 7 Days'] as const;
 export type TimeRange = typeof TIME_RANGES[number];
+
+export function resolvePublicationWindow(timeRange: TimeRange, now: Date): { from: string; to: string } {
+  const days = timeRange === 'Past 24 Hours' ? 1 : timeRange === 'Past 3 Days' ? 3 : 7;
+  return { from: new Date(now.getTime() - days * 86_400_000).toISOString(), to: now.toISOString() };
+}
 
 export const DELIVERY_MODES = ['Text Only', 'Text + Audio'] as const;
 export type DeliveryMode = typeof DELIVERY_MODES[number];
@@ -301,8 +309,10 @@ export class NewsroomBot {
   private async runGeneration(chatId: string, preferences: ResearchPreferences): Promise<void> {
     try {
       await this.options.generate(chatId, preferences);
-    } catch {
-      await this.options.telegram.sendMessage(chatId, BOT_COPY.generationFailed);
+    } catch (error) {
+      const message = error instanceof Error && error.message.startsWith('No stories were published within')
+        ? BOT_COPY.noRecentStories : BOT_COPY.generationFailed;
+      await this.options.telegram.sendMessage(chatId, message);
     } finally {
       this.generating.delete(chatId);
     }
@@ -332,22 +342,56 @@ export interface GeneratorOptions {
 
 export function createBriefingGenerator(options: GeneratorOptions) {
   return async (chatId: string, preferences: ResearchPreferences): Promise<void> => {
-    const createdAt = (options.now ?? (() => new Date()))().toISOString();
-    const candidates = linkupResultsToCandidates(await options.linkup.search(createResearchQuery(preferences)), createdAt);
-    const stories = rankStories(candidates);
-    if (!stories.length) throw new Error('No usable stories were returned');
+    const now = (options.now ?? (() => new Date()))();
+    const createdAt = now.toISOString();
+    const publicationWindow = resolvePublicationWindow(preferences.timeRange, now);
+    const candidates = linkupResultsToCandidates(
+      await options.linkup.search(createResearchQuery(preferences), publicationWindow), createdAt,
+    );
+    const fetchedOriginals = new Map<string, { markdown?: string; error?: string }>();
+    const datedCandidates = await Promise.all(candidates.map(async (candidate) => {
+      try {
+        const document = options.linkup.fetchDocument
+          ? await options.linkup.fetchDocument(candidate.url!)
+          : { markdown: await options.linkup.fetch(candidate.url!) };
+        const { markdown } = document;
+        fetchedOriginals.set(candidate.id, { markdown });
+        const publishedAt = (document.rawHtml ? extractPublishedAt(document.rawHtml) : undefined)
+          ?? extractPublishedAt(markdown);
+        return { ...candidate, publishedAt };
+      } catch (error) {
+        fetchedOriginals.set(candidate.id, { error: error instanceof Error ? error.message : 'Original fetch failed' });
+        return candidate;
+      }
+    }));
+    const filterReport = filterCandidatesByPublicationWindow(datedCandidates, publicationWindow);
+    const artifactsDirectory = options.artifactsDirectory ?? resolve(process.cwd(), 'artifacts');
+    await writeArtifacts(artifactsDirectory, {
+      'story-candidates.json': datedCandidates, 'publication-filter-report.json': filterReport,
+    });
+    const stories = rankStories(filterReport.eligible);
+    if (!stories.length) throw new Error(`No stories were published within ${preferences.timeRange}. Please try a broader news range.`);
     const rundown = { id: `rundown-${createdAt}`, createdAt, stories };
-    const evidence = await gatherLinkupEvidence(stories, options.linkup);
+    const searchedEvidence = await gatherLinkupSearchEvidence(stories, options.linkup, publicationWindow);
+    const evidence = searchedEvidence.map((item) => {
+      const fetched = fetchedOriginals.get(item.storyId);
+      return LinkupEvidenceSchema.parse({
+        ...item,
+        original: { ...item.original, ...(fetched?.markdown?.trim() ? { markdown: fetched.markdown } : {}) },
+        verificationStatus: fetched?.markdown?.trim() ? 'verified' : 'failed',
+        errors: fetched?.error ? [...item.errors, fetched.error] : item.errors,
+      });
+    });
     const analysis = await options.analysisGenerator.generate({ preferences, stories, evidence });
-    const factGate = runAnalysisFactGate(analysis, stories, evidence, createdAt);
+    const factGate = runAnalysisFactGate(analysis, stories, evidence, createdAt, publicationWindow);
     const script = writeAnalysisBulletinScript(analysis, stories, createdAt, factGate.scriptStatus);
     const edition = EditionArtifactSchema.parse({
       id: `edition-${createdAt}`, createdAt, status: factGate.scriptStatus, rundownId: rundown.id,
       scriptId: script.id, factGateId: factGate.id, storyIds: stories.map(({ id }) => id),
     });
-    const artifactsDirectory = options.artifactsDirectory ?? resolve(process.cwd(), 'artifacts');
     await writeArtifacts(artifactsDirectory, {
-      'story-candidates.json': candidates, 'rundown.json': rundown, 'linkup-evidence.json': evidence,
+      'story-candidates.json': datedCandidates, 'publication-filter-report.json': filterReport,
+      'rundown.json': rundown, 'linkup-evidence.json': evidence,
       'llm-analysis.json': analysis, 'script.json': script, 'fact-gate.json': factGate, 'edition.json': edition,
     });
     if (!factGate.approved) throw new Error(`Fact Gate blocked the briefing: ${factGate.reasons.join('; ')}`);

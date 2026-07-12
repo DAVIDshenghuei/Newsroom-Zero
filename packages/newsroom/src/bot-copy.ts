@@ -20,6 +20,7 @@ export const BOT_COPY = Object.freeze({
   generating: 'Researching the latest news and preparing your briefing now.',
   alreadyGenerating: 'A briefing is already being generated for this chat. Please wait for it to finish.',
   generationFailed: 'I could not generate the briefing right now. Please try Generate Now again later.',
+  noRecentStories: 'I could not find any reliably dated stories in that publication window. Please choose a broader news range and try again.',
   generationComplete: 'Your Newsroom Zero AI briefing is ready.',
   audioUnavailable: 'Audio generation is unavailable right now. Your text briefing is below.',
   expired: 'This research brief is incomplete. Send /start to begin again.',

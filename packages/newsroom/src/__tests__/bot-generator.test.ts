@@ -25,28 +25,89 @@ const validAnalysis = (storyId: string) => {
 const setup = async (analysisGenerator: AnalysisGenerator, ttsFails = false) => {
   const directory = await mkdtemp(join(tmpdir(), 'newsroom-generator-'));
   const search = vi.fn().mockResolvedValue([searchResult]);
-  const fetch = vi.fn().mockResolvedValue('# Verified article\nA detailed launch report with practical product information.');
+  const fetch = vi.fn().mockResolvedValue('Published July 10, 2026\n# Verified article\nA detailed launch report with practical product information.');
+  const fetchDocument = vi.fn().mockResolvedValue({
+    markdown: '# Verified article\nA detailed launch report with practical product information.',
+    rawHtml: '<meta property="article:published_time" content="2026-07-10T09:30:00Z">',
+  });
   const synthesize = ttsFails
     ? vi.fn().mockRejectedValue(new Error('all providers unavailable'))
     : vi.fn().mockResolvedValue(Buffer.from('realistic-mp3-fixture'));
   const publish = vi.fn().mockResolvedValue(1);
   const sendMessage = vi.fn().mockResolvedValue(1);
   const generate = createBriefingGenerator({
-    linkup: { search, fetch }, analysisGenerator,
+    linkup: { search, fetch, fetchDocument }, analysisGenerator,
     synthesizer: { synthesize }, telegram: { publish, sendMessage },
     artifactsDirectory: join(directory, 'artifacts'), episodesDirectory: join(directory, 'episodes'),
     now: () => new Date('2026-07-11T12:00:00.000Z'),
   });
-  return { generate, directory, search, fetch, synthesize, publish, sendMessage };
+  return { generate, directory, search, fetch, fetchDocument, synthesize, publish, sendMessage };
 };
 
 describe('LLM personalized briefing generator', () => {
+  it('passes the exact window to search and reuses the pre-ranking original fetch', async () => {
+    const analysisGenerator: AnalysisGenerator = { generate: vi.fn(async ({ stories }) => validAnalysis(stories[0].id)) };
+    const harness = await setup(analysisGenerator);
+    await harness.generate('42', textPrefs);
+    expect(harness.search).toHaveBeenNthCalledWith(1, expect.any(String), {
+      from: '2026-07-08T12:00:00.000Z', to: '2026-07-11T12:00:00.000Z',
+    });
+    expect(harness.fetchDocument).toHaveBeenCalledTimes(1);
+    expect(harness.fetch).not.toHaveBeenCalled();
+    const rundown = JSON.parse(await readFile(join(harness.directory, 'artifacts', 'rundown.json'), 'utf8'));
+    expect(rundown.stories[0].publishedAt).toBe('2026-07-10T09:30:00.000Z');
+  });
+
+  it.each([
+    ['old', 'Published Jan 16, 2026'],
+    ['unknown', '# Article without a publication date'],
+    ['future', 'Published July 12, 2026'],
+  ])('rejects %s originals before analysis, audio, or episode writes', async (_label, markdown) => {
+    const analysisGenerator: AnalysisGenerator = { generate: vi.fn() };
+    const harness = await setup(analysisGenerator);
+    harness.fetchDocument.mockResolvedValue({ markdown });
+    await expect(harness.generate('42', textPrefs)).rejects.toThrow('No stories were published within Past 3 Days');
+    expect(analysisGenerator.generate).not.toHaveBeenCalled();
+    expect(harness.synthesize).not.toHaveBeenCalled();
+    expect(harness.publish).not.toHaveBeenCalled();
+    await expect(readFile(join(harness.directory, 'episodes', 'latest.json'))).rejects.toThrow();
+    const report = JSON.parse(await readFile(join(harness.directory, 'artifacts', 'publication-filter-report.json'), 'utf8'));
+    expect(report.eligible).toEqual([]);
+    expect(report.rejected).toHaveLength(1);
+  });
+
+  it('continues with one or two eligible stories without backfilling rejected results', async () => {
+    const analysisGenerator: AnalysisGenerator = { generate: vi.fn(async ({ stories }) => validAnalysis(stories[0].id)) };
+    const harness = await setup(analysisGenerator);
+    harness.search.mockResolvedValue([
+      searchResult,
+      { ...searchResult, name: 'Second current story', url: 'https://example.com/current-two' },
+      { ...searchResult, name: 'Old story', url: 'https://example.com/old' },
+    ]);
+    harness.fetchDocument
+      .mockResolvedValueOnce({ markdown: 'Published July 10, 2026\nA detailed launch report with practical product information.' })
+      .mockResolvedValueOnce({ markdown: 'Published July 9, 2026\nA detailed launch report with practical product information.' })
+      .mockResolvedValueOnce({ markdown: 'Published June 2, 2026\nOld' });
+    await harness.generate('42', textPrefs);
+    const rundown = JSON.parse(await readFile(join(harness.directory, 'artifacts', 'rundown.json'), 'utf8'));
+    expect(rundown.stories).toHaveLength(2);
+    expect(rundown.stories.map((item: { headline: string }) => item.headline)).not.toContain('Old story');
+  });
+
+  it('rejects Updated-only markdown when raw HTML has no publication metadata', async () => {
+    const analysisGenerator: AnalysisGenerator = { generate: vi.fn() };
+    const harness = await setup(analysisGenerator);
+    harness.fetchDocument.mockResolvedValue({ markdown: 'Updated July 10, 2026', rawHtml: '<html><body>Article</body></html>' });
+    await expect(harness.generate('42', textPrefs)).rejects.toThrow('No stories were published within Past 3 Days');
+    expect(analysisGenerator.generate).not.toHaveBeenCalled();
+  });
+
   it('calls grounded analysis after source fetch and publishes audio for text_and_audio mode', async () => {
     const analysisGenerator: AnalysisGenerator = { generate: vi.fn(async ({ stories }) => validAnalysis(stories[0].id)) };
     const harness = await setup(analysisGenerator);
     await harness.generate('42', audioPrefs);
     expect(analysisGenerator.generate).toHaveBeenCalledWith(expect.objectContaining({ preferences: audioPrefs, stories: expect.any(Array), evidence: expect.any(Array) }));
-    expect(harness.fetch.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(analysisGenerator.generate).mock.invocationCallOrder[0]);
+    expect(harness.fetchDocument.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(analysisGenerator.generate).mock.invocationCallOrder[0]);
     expect(vi.mocked(analysisGenerator.generate).mock.invocationCallOrder[0]).toBeLessThan(harness.synthesize.mock.invocationCallOrder[0]);
     expect(harness.publish).toHaveBeenCalledTimes(1);
     expect(harness.publish).toHaveBeenCalledWith(expect.objectContaining({
