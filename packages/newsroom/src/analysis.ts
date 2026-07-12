@@ -47,11 +47,18 @@ export const ANTHROPIC_ANALYSIS_SYSTEM_PROMPT = [
 ].join(' ');
 
 const sourceTextLimit = 14_000;
+export function verifiedQuoteText(markdown: string): string {
+  return markdown
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/<[^>]+>/g, '')
+    .replace(/[*_`~]/g, '');
+}
 export function buildAnalysisPrompt(input: AnalysisInput): string {
   const evidenceByStory = new Map(input.evidence.map((item) => [item.storyId, item]));
   const sources = input.stories.map((story) => ({
     storyId: story.id, source: story.source, headline: story.headline, canonicalUrl: story.canonicalUrl,
-    verifiedOriginalText: evidenceByStory.get(story.id)?.original.markdown?.slice(0, sourceTextLimit) ?? '',
+    verifiedOriginalText: verifiedQuoteText(evidenceByStory.get(story.id)?.original.markdown ?? '').slice(0, sourceTextLimit),
   }));
   const citedShape = { text: 'string', sourceStoryIds: ['story-id'], supportingQuotes: [{ storyId: 'story-id', quote: 'exact source excerpt' }] };
   return [
@@ -143,7 +150,7 @@ export function runAnalysisFactGate(value: unknown, stories: RankedStory[], evid
   if (parsed.success) {
     const known = new Set(stories.map((story) => story.id));
     const verified = new Set(evidence.filter((item) => item.verificationStatus === 'verified' && item.original.markdown?.trim()).map((item) => item.storyId));
-    const promptedOriginals = new Map(evidence.map((item) => [item.storyId, (item.original.markdown ?? '').slice(0, sourceTextLimit)]));
+    const promptedOriginals = new Map(evidence.map((item) => [item.storyId, verifiedQuoteText(item.original.markdown ?? '').slice(0, sourceTextLimit)]));
     for (const item of analysisItems(parsed.data)) {
       for (const sourceStoryId of item.sourceStoryIds) {
         if (!known.has(sourceStoryId)) reasons.push(`${item.label}: unknown source story ${sourceStoryId}`);
