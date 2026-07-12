@@ -6,8 +6,9 @@ describe('bot copy', () => {
     expect(WELCOME_MESSAGE).toBe(
       'Welcome to Newsroom Zero.\n\n' +
       'I search the latest AI news, analyze trends, and turn them into actionable insights.\n\n' +
-      'Choose one or more AI topics below, then tap Done.',
+      'Choose an AI topic below.',
     );
+    expect(Object.values(BOT_COPY).join('\n')).not.toMatch(/one or more|tap Done/i);
   });
 
   it('includes delivery mode options', () => {
