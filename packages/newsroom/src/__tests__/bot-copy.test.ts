@@ -11,7 +11,17 @@ describe('bot copy', () => {
     );
   });
 
+  it('includes delivery mode options', () => {
+    expect(BOT_COPY.askDelivery).toContain('How would you like');
+    expect(BOT_COPY.textOnly).toMatch(/text\s*only/i);
+    expect(BOT_COPY.textAndAudio).toMatch(/text.*audio|audio.*text/i);
+  });
+
+  it('includes audio-unavailable fallback message', () => {
+    expect(BOT_COPY.audioUnavailable).toMatch(/audio.*unavailable|unable.*audio|text.*briefing/i);
+  });
+
   it('contains no CJK characters in any exported UI copy', () => {
-    expect(Object.values(BOT_COPY).join('\n')).not.toMatch(/[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/u);
+    expect(Object.values(BOT_COPY).join('\n')).not.toMatch(/[぀-ヿ㐀-鿿豈-﫿]/u);
   });
 });

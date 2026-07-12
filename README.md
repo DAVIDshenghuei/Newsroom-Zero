@@ -14,7 +14,7 @@ Built for the **Hermes Buildathon**.
 
 ## What It Does
 
-Newsroom Zero collects a listener's preferred topics, analysis angle, and news range through an English-only Telegram conversation. It researches current stories with Linkup, validates and ranks the results, verifies original sources, applies a blocking Fact Gate, synthesizes the approved script with ElevenLabs, and delivers the resulting MP3 with citations back to the same Telegram chat.
+Newsroom Zero collects a listener's preferred topics, analysis angle, news range, and delivery mode (Text Only or Text + Audio) through an English-only Telegram conversation. It researches current stories with Linkup, validates and ranks the results, verifies original sources, applies a blocking Fact Gate, synthesizes the approved script via Pocket TTS (with ElevenLabs failover), and delivers the resulting briefing with citations back to the same Telegram chat.
 
 ## Telegram Demo Flow
 
@@ -22,8 +22,9 @@ Newsroom Zero collects a listener's preferred topics, analysis angle, and news r
 2. Enter the AI topics you want to follow.
 3. Choose the analysis angles that matter to you.
 4. Select a news range: **Past 24 Hours**, **Past 3 Days**, or **Past 7 Days**.
-5. Review your preferences and press **Generate Now**.
-6. Receive a fact-gated audio briefing with clickable sources in Telegram.
+5. Choose delivery mode: **Text Only** or **Text + Audio**.
+6. Review your preferences and press **Generate Now**.
+7. Receive a fact-gated briefing (text or audio) with clickable sources in Telegram.
 
 All Telegram Bot copy and interactions are in English.
 
@@ -37,10 +38,16 @@ flowchart LR
     D --> E[Anthropic structured analysis]
     E --> F[Claim-level citations]
     F --> G{Blocking Fact Gate}
-    G -- Approved --> H[ElevenLabs MP3]
-    H --> I[Telegram delivery]
-    H --> J[Latest web episode]
-    G -- Blocked --> K[No voice or publication]
+    G -- Approved --> H{Delivery mode}
+    H -- Text Only --> I[Telegram text delivery]
+    H -- Text + Audio --> J{Pocket TTS}
+    J -- Success --> K[Telegram audio delivery]
+    J -- Fail --> L{ElevenLabs fallback}
+    L -- Success --> K
+    L -- Fail --> I
+    K --> M[Latest web episode]
+    I --> M
+    G -- Blocked --> N[No voice or publication]
 ```
 
 ### Safety Properties
@@ -59,12 +66,13 @@ flowchart LR
 ## Current Capabilities
 
 - Interactive, per-chat Telegram onboarding and persisted workflow state
+- Text Only / Text + Audio delivery mode selection
 - Linkup search and original-source fetch
 - Topic-aware story validation, deduplication, and ranking
 - Anthropic structured summaries, cross-story trends, strategic implications, and recommendations
 - Claim-level citation and research-aware blocking Fact Gate
-- ElevenLabs text-to-speech generation
-- Personalized Telegram MP3 delivery with sources
+- Pocket TTS primary voice generation with ElevenLabs fallback
+- Personalized Telegram MP3 delivery or text-only briefing with sources
 - Local Next.js landing page and latest episode player
 - Live RSS/Atom ingestion for the standalone newsroom pipeline
 
@@ -79,7 +87,7 @@ The interactive Bot uses grounded Anthropic analysis. The standalone RSS prepara
 - A Telegram bot token
 - A Linkup API key
 - An Anthropic API key
-- An ElevenLabs API key
+- An ElevenLabs API key (used as fallback when Pocket TTS is unavailable)
 
 ### Install
 
@@ -99,6 +107,8 @@ LINKUP_API_KEY=
 ANTHROPIC_API_KEY=
 ANTHROPIC_MODEL=claude-sonnet-4-5-20250929
 ELEVENLABS_API_KEY=
+POCKET_TTS_BASE_URL=
+POCKET_TTS_API_KEY=
 ```
 
 Never commit `.env` or paste production credentials into issues or screenshots.
@@ -170,6 +180,7 @@ artifacts/                 Local generated workflow artifacts (gitignored)
 - Vitest
 - Linkup API
 - Anthropic Messages API
+- Pocket TTS
 - ElevenLabs API
 - Telegram Bot API
 

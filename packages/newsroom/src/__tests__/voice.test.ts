@@ -6,7 +6,7 @@ import {
   type FactGateDecision,
   type RankedStory,
 } from '../index.js';
-import { createVoiceEpisode, type VoiceSynthesizer } from '../voice.js';
+import { createVoiceEpisode, EpisodeMetadataSchema, type VoiceSynthesizer } from '../voice.js';
 
 const generatedAt = '2026-07-11T15:00:00.000Z';
 const script: BulletinScript = {
@@ -63,5 +63,24 @@ describe('createVoiceEpisode', () => {
       factGate: { approved: true },
     });
     expect(EditionArtifactSchema.parse(output.edition).status).toBe('voiced');
+  });
+
+  it('includes audio outcome fields in metadata when provided', async () => {
+    const synthesizer = {
+      synthesize: vi.fn().mockResolvedValue(new Uint8Array([0x49, 0x44, 0x33])),
+    } satisfies VoiceSynthesizer;
+    const output = await createVoiceEpisode({
+      script, factGate, rundown: { stories: [story] }, edition,
+      synthesizer, voiceId: 'voice', generatedAt,
+      audioRequested: true, audioGenerated: true, provider: 'pocket-tts', fallbackUsed: false,
+    });
+    expect(output.episode.audioRequested).toBe(true);
+    expect(output.episode.audioGenerated).toBe(true);
+    expect(output.episode.provider).toBe('pocket-tts');
+    expect(output.episode.fallbackUsed).toBe(false);
+    expect(EpisodeMetadataSchema.parse(output.episode)).toMatchObject({
+      audioUrl: '/episodes/latest.mp3',
+      audioRequested: true, audioGenerated: true, provider: 'pocket-tts', fallbackUsed: false,
+    });
   });
 });

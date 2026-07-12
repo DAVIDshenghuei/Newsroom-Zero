@@ -13,6 +13,7 @@ describe('topic-aware bot workflow', () => {
   it('builds a query from every stored preference and deterministically validates candidates', () => {
     const query = createResearchQuery({
       topics: 'AI Agents, Claude Code', analysisAngles: 'Product Strategy', timeRange: 'Past 3 Days',
+      deliveryMode: 'text_and_audio',
     });
     expect(query).toContain('AI Agents, Claude Code');
     expect(query).toContain('Product Strategy');
@@ -27,7 +28,7 @@ describe('topic-aware bot workflow', () => {
     expect(linkupResultsToCandidates(results, '2026-07-11T12:00:00.000Z')).toEqual(candidates);
   });
 
-  it('persists the conversation and resets it with /start', async () => {
+  it('persists the conversation including delivery mode and resets it with /start', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'newsroom-bot-'));
     const path = join(directory, 'bot-state.json');
     const store = new BotStateStore(path);
@@ -40,15 +41,16 @@ describe('topic-aware bot workflow', () => {
     await bot.handleUpdate({ update_id: 2, message: { chat: { id: 42 }, text: 'AI Agents, AI Travel' } });
     await bot.handleUpdate({ update_id: 3, message: { chat: { id: 42 }, text: 'Startup Opportunities' } });
     await bot.handleUpdate({ update_id: 4, message: { chat: { id: 42 }, text: 'Past 7 Days' } });
+    await bot.handleUpdate({ update_id: 5, message: { chat: { id: 42 }, text: 'Text + Audio' } });
 
     expect(telegram.sendMessage).toHaveBeenLastCalledWith('42', expect.stringContaining(
       'Topics: AI Agents, AI Travel\nAnalysis Angles: Startup Opportunities\nNews Range: Past 7 Days',
     ), expect.any(Object));
     expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({
-      offset: 5, chats: { '42': { step: 'confirm', topics: 'AI Agents, AI Travel' } },
+      offset: 6, chats: { '42': { step: 'confirm', topics: 'AI Agents, AI Travel', deliveryMode: 'text_and_audio' } },
     });
 
-    await bot.handleUpdate({ update_id: 5, message: { chat: { id: 42 }, text: '/start' } });
+    await bot.handleUpdate({ update_id: 6, message: { chat: { id: 42 }, text: '/start' } });
     expect((await store.snapshot()).chats['42']).toEqual({ step: 'topics' });
   });
 
@@ -56,7 +58,7 @@ describe('topic-aware bot workflow', () => {
     const directory = await mkdtemp(join(tmpdir(), 'newsroom-bot-'));
     const store = new BotStateStore(join(directory, 'state.json'));
     await store.setChat('42', {
-      step: 'confirm', topics: 'AI Agents', analysisAngles: 'Technical Trends', timeRange: 'Past 24 Hours',
+      step: 'confirm', topics: 'AI Agents', analysisAngles: 'Technical Trends', timeRange: 'Past 24 Hours', deliveryMode: 'text_and_audio',
     });
     let release!: () => void;
     const generate = vi.fn(() => new Promise<void>((resolve) => { release = resolve; }));

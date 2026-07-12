@@ -4,7 +4,8 @@ import { AnthropicAnalysisGenerator } from './analysis.js';
 import { ElevenLabsClient } from './elevenlabs.js';
 import { LinkupClient } from './linkup.js';
 import { TelegramClient } from './telegram.js';
-import { DEFAULT_ELEVENLABS_VOICE_ID } from './voice.js';
+import { DEFAULT_ELEVENLABS_VOICE_ID, type VoiceSynthesizer } from './voice.js';
+import { FallbackVoiceSynthesizer, PocketTtsClient } from './pocket-tts.js';
 
 const required = (name: string): string => {
   const value = process.env[name];
@@ -15,11 +16,32 @@ const required = (name: string): string => {
 async function main(): Promise<void> {
   const telegram = new TelegramClient({ token: required('TELEGRAM_BOT_TOKEN') });
   const linkup = new LinkupClient({ apiKey: required('LINKUP_API_KEY') });
-  const synthesizer = new ElevenLabsClient({ apiKey: required('ELEVENLABS_API_KEY') });
+  const elevenlabsKey = process.env.ELEVENLABS_API_KEY;
+  const elevenlabs = elevenlabsKey ? new ElevenLabsClient({ apiKey: elevenlabsKey }) : undefined;
   const analysisGenerator = new AnthropicAnalysisGenerator({
     apiKey: required('ANTHROPIC_API_KEY'),
     model: process.env.ANTHROPIC_MODEL,
   });
+
+  let synthesizer: VoiceSynthesizer;
+  const unavailable: VoiceSynthesizer = { synthesize: async () => { throw new Error('No TTS provider is configured'); } };
+  const pocketBaseUrl = process.env.POCKET_TTS_BASE_URL;
+  if (pocketBaseUrl) {
+    const pocket = new PocketTtsClient({
+      baseUrl: pocketBaseUrl,
+      apiKey: process.env.POCKET_TTS_API_KEY,
+      language: process.env.POCKET_TTS_LANGUAGE,
+      timeoutMs: process.env.POCKET_TTS_TIMEOUT_MS ? Number(process.env.POCKET_TTS_TIMEOUT_MS) : undefined,
+    });
+    synthesizer = new FallbackVoiceSynthesizer({
+      primary: pocket, fallback: elevenlabs,
+      primaryVoiceId: process.env.POCKET_TTS_VOICE || 'alba',
+      fallbackVoiceId: process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID,
+    });
+  } else {
+    synthesizer = elevenlabs ?? unavailable;
+  }
+
   const store = new BotStateStore(resolve(process.cwd(), 'artifacts/bot-state.json'));
   const bot = new NewsroomBot({
     store, telegram,

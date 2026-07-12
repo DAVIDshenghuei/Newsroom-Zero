@@ -24,6 +24,7 @@ export * from './feeds.js';
 export * from './http-fetcher.js';
 export * from './pipeline.js';
 export * from './elevenlabs.js';
+export * from './pocket-tts.js';
 export * from './voice.js';
 export * from './telegram.js';
 export * from './linkup.js';

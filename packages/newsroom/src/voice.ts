@@ -15,7 +15,11 @@ export const DEFAULT_ELEVENLABS_VOICE_ID = 'SAz9YHcvj6GT2YYXdXww';
 export const EpisodeMetadataSchema = z.object({
   title: z.string().min(1),
   generatedAt: z.string().datetime(),
-  audioUrl: z.string().min(1),
+  audioUrl: z.string().min(1).optional(),
+  audioRequested: z.boolean().optional(),
+  audioGenerated: z.boolean().optional(),
+  provider: z.string().optional(),
+  fallbackUsed: z.boolean().optional(),
   stories: z.array(z.object({
     headline: z.string().min(1),
     source: z.string().min(1),
@@ -38,9 +42,13 @@ export interface VoiceEpisodeInput {
   voiceId: string;
   generatedAt: string;
   title?: string;
+  audioRequested?: boolean;
+  audioGenerated?: boolean;
+  provider?: string;
+  fallbackUsed?: boolean;
 }
 
-const concise = (value: string): string => value.replace(/\s+/g, ' ').trim();
+export const concise = (value: string): string => value.replace(/\s+/g, ' ').trim();
 
 export function assertVoiceEligible(script: BulletinScript, factGate: FactGateDecision): void {
   if (script.status !== 'ready_for_voice' || factGate.approved !== true) {
@@ -65,6 +73,10 @@ export async function createVoiceEpisode(input: VoiceEpisodeInput): Promise<{
     title: input.title ?? `Newsroom Zero — ${input.generatedAt.slice(0, 10)}`,
     generatedAt: input.generatedAt,
     audioUrl: '/episodes/latest.mp3',
+    audioRequested: input.audioRequested ?? true,
+    audioGenerated: input.audioGenerated ?? true,
+    provider: input.provider,
+    fallbackUsed: input.fallbackUsed,
     stories: stories.map(({ headline, source, canonicalUrl }) => ({
       headline, source, url: canonicalUrl,
     })),

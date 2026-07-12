@@ -12,16 +12,26 @@ import {
   EditionArtifactSchema, rankStories,
 } from './pipeline.js';
 import type { InlineKeyboardMarkup, TelegramClient, TelegramUpdate } from './telegram.js';
-import { createVoiceEpisode, DEFAULT_ELEVENLABS_VOICE_ID, type VoiceSynthesizer } from './voice.js';
+import { concise, DEFAULT_ELEVENLABS_VOICE_ID, EpisodeMetadataSchema, type VoiceSynthesizer } from './voice.js';
+import type { SynthesizeOutcomeFunction, VoiceSynthesisOutcome } from './pocket-tts.js';
 
 export const TIME_RANGES = ['Past 24 Hours', 'Past 3 Days', 'Past 7 Days'] as const;
 export type TimeRange = typeof TIME_RANGES[number];
 
+export const DELIVERY_MODES = ['Text Only', 'Text + Audio'] as const;
+export type DeliveryMode = typeof DELIVERY_MODES[number];
+export const DELIVERY_MODE_VALUES: Record<DeliveryMode, 'text_only' | 'text_and_audio'> = {
+  'Text Only': 'text_only',
+  'Text + Audio': 'text_and_audio',
+};
+export type DeliveryModeValue = 'text_only' | 'text_and_audio';
+
 const ChatStateSchema = z.object({
-  step: z.enum(['topics', 'angles', 'range', 'confirm']),
+  step: z.enum(['topics', 'angles', 'range', 'delivery', 'confirm']),
   topics: z.string().min(1).optional(),
   analysisAngles: z.string().min(1).optional(),
   timeRange: z.enum(TIME_RANGES).optional(),
+  deliveryMode: z.enum(['text_only', 'text_and_audio']).optional(),
 });
 export type ChatState = z.infer<typeof ChatStateSchema>;
 
@@ -89,6 +99,7 @@ export interface ResearchPreferences {
   topics: string;
   analysisAngles: string;
   timeRange: TimeRange;
+  deliveryMode: DeliveryModeValue;
 }
 
 export function createResearchQuery(preferences: ResearchPreferences): string {
@@ -120,6 +131,9 @@ export interface NewsroomBotOptions {
 
 const rangeKeyboard: InlineKeyboardMarkup = {
   inline_keyboard: TIME_RANGES.map((text) => [{ text, callback_data: `range:${text}` }]),
+};
+const deliveryKeyboard: InlineKeyboardMarkup = {
+  inline_keyboard: [[{ text: BOT_COPY.textOnly, callback_data: 'delivery:text_only' }, { text: BOT_COPY.textAndAudio, callback_data: 'delivery:text_and_audio' }]],
 };
 const generateKeyboard: InlineKeyboardMarkup = {
   inline_keyboard: [[{ text: BOT_COPY.generateNow, callback_data: 'generate_now' }]],
@@ -166,7 +180,11 @@ export class NewsroomBot {
       await this.options.telegram.sendMessage(chatId, BOT_COPY.askRange, rangeKeyboard);
     } else if (chat.step === 'range') {
       if (!TIME_RANGES.includes(text as TimeRange)) return this.rejectText(chatId, BOT_COPY.invalidRange, offset);
-      await this.confirm(chatId, { ...chat, step: 'confirm', timeRange: text as TimeRange }, offset);
+      await this.options.store.updateChatAndOffset(chatId, { ...chat, step: 'delivery', timeRange: text as TimeRange }, offset);
+      await this.options.telegram.sendMessage(chatId, BOT_COPY.askDelivery, deliveryKeyboard);
+    } else if (chat.step === 'delivery') {
+      if (!DELIVERY_MODES.includes(text as DeliveryMode)) return this.rejectText(chatId, BOT_COPY.invalidDelivery, offset);
+      await this.confirm(chatId, { ...chat, step: 'confirm', deliveryMode: DELIVERY_MODE_VALUES[text as DeliveryMode] }, offset);
     } else {
       await this.options.store.setOffset(offset);
       await this.options.telegram.sendMessage(chatId, this.confirmation(chat as Required<ChatState>), generateKeyboard);
@@ -190,16 +208,27 @@ export class NewsroomBot {
     if (data?.startsWith('range:')) {
       const range = data.slice(6);
       if (chat?.step === 'range' && TIME_RANGES.includes(range as TimeRange)) {
-        await this.confirm(chatId, { ...chat, step: 'confirm', timeRange: range as TimeRange }, offset);
+        await this.options.store.updateChatAndOffset(chatId, { ...chat, step: 'delivery', timeRange: range as TimeRange }, offset);
+        await this.options.telegram.sendMessage(chatId, BOT_COPY.askDelivery, deliveryKeyboard);
       } else {
         await this.options.store.setOffset(offset);
         await this.options.telegram.sendMessage(chatId, BOT_COPY.invalidRange);
       }
       return;
     }
+    if (data?.startsWith('delivery:')) {
+      const value = data.slice(9);
+      if (chat?.step === 'delivery' && (value === 'text_only' || value === 'text_and_audio')) {
+        await this.confirm(chatId, { ...chat, step: 'confirm', deliveryMode: value as DeliveryModeValue }, offset);
+      } else {
+        await this.options.store.setOffset(offset);
+        await this.options.telegram.sendMessage(chatId, BOT_COPY.invalidDelivery);
+      }
+      return;
+    }
     await this.options.store.setOffset(offset);
     if (data !== 'generate_now') return;
-    if (!chat || chat.step !== 'confirm' || !chat.topics || !chat.analysisAngles || !chat.timeRange) {
+    if (!chat || chat.step !== 'confirm' || !chat.topics || !chat.analysisAngles || !chat.timeRange || !chat.deliveryMode) {
       this.generating.delete(chatId);
       await this.options.telegram.sendMessage(chatId, BOT_COPY.expired);
       return;
@@ -224,7 +253,8 @@ export class NewsroomBot {
   }
 
   private confirmation(chat: Required<ChatState>): string {
-    return `${BOT_COPY.confirmation}\n\nTopics: ${chat.topics}\nAnalysis Angles: ${chat.analysisAngles}\nNews Range: ${chat.timeRange}`;
+    const deliveryLabel = chat.deliveryMode === 'text_and_audio' ? 'Text + Audio' : 'Text Only';
+    return `${BOT_COPY.confirmation}\n\nTopics: ${chat.topics}\nAnalysis Angles: ${chat.analysisAngles}\nNews Range: ${chat.timeRange}\nDelivery: ${deliveryLabel}`;
   }
 }
 
@@ -260,19 +290,59 @@ export function createBriefingGenerator(options: GeneratorOptions) {
       'llm-analysis.json': analysis, 'script.json': script, 'fact-gate.json': factGate, 'edition.json': edition,
     });
     if (!factGate.approved) throw new Error(`Fact Gate blocked the briefing: ${factGate.reasons.join('; ')}`);
-    const output = await createVoiceEpisode({
-      script, factGate, rundown, edition, synthesizer: options.synthesizer,
-      voiceId: options.voiceId ?? DEFAULT_ELEVENLABS_VOICE_ID, generatedAt: createdAt,
-      title: `${analysis.title} — ${preferences.analysisAngles}`,
+    if (script.status !== 'ready_for_voice') throw new Error('Voice generation refused: script must be ready_for_voice and Fact Gate must be approved');
+
+    const bulletin = script.segments.map(({ text }) => concise(text)).filter(Boolean).join('\n\n');
+    const title = `${analysis.title} — ${preferences.analysisAngles}`;
+    const storyMetadata = stories.map(({ headline, source, canonicalUrl }) => ({
+      headline, source, url: canonicalUrl,
+    }));
+
+    let outcome: VoiceSynthesisOutcome | undefined;
+    if (preferences.deliveryMode === 'text_and_audio') {
+      const withOutcome = options.synthesizer as (VoiceSynthesizer & Partial<SynthesizeOutcomeFunction>);
+      if (withOutcome.synthesizeWithOutcome) {
+        try { outcome = await withOutcome.synthesizeWithOutcome(bulletin); }
+        catch { /* both TTS providers failed — fall through to text-only publication */ }
+      } else {
+        try {
+          const audio = await options.synthesizer.synthesize(options.voiceId ?? DEFAULT_ELEVENLABS_VOICE_ID, bulletin);
+          outcome = { audio, provider: 'elevenlabs', fallbackUsed: false };
+        } catch { /* TTS failed — fall through to text-only publication */ }
+      }
+    }
+
+    const episode = EpisodeMetadataSchema.parse({
+      title, generatedAt: createdAt,
+      audioUrl: outcome ? '/episodes/latest.mp3' : undefined,
+      audioRequested: preferences.deliveryMode === 'text_and_audio', audioGenerated: !!outcome,
+      provider: outcome?.provider, fallbackUsed: outcome?.fallbackUsed,
+      stories: storyMetadata, factGate,
     });
+    const updatedEdition = EditionArtifactSchema.parse({ ...edition, status: 'voiced' });
     const episodesDirectory = options.episodesDirectory ?? resolve(process.cwd(), 'apps/web/public/episodes');
     await mkdir(episodesDirectory, { recursive: true });
-    await Promise.all([
-      writeFile(resolve(episodesDirectory, 'latest.mp3'), output.audio),
-      writeFile(resolve(episodesDirectory, 'latest.json'), `${JSON.stringify(output.episode, null, 2)}\n`, 'utf8'),
-      writeFile(resolve(artifactsDirectory, 'edition.json'), `${JSON.stringify(output.edition, null, 2)}\n`, 'utf8'),
-    ]);
-    await options.telegram.publish({ chatId, metadata: output.episode, audio: output.audio });
+
+    const audioOutcome = {
+      audioRequested: preferences.deliveryMode === 'text_and_audio',
+      audioGenerated: !!outcome,
+      provider: outcome?.provider ?? null,
+      fallbackUsed: outcome?.fallbackUsed ?? false,
+    };
+    const writes: Promise<void>[] = [
+      writeFile(resolve(episodesDirectory, 'latest.json'), `${JSON.stringify(episode, null, 2)}\n`, 'utf8'),
+      writeFile(resolve(artifactsDirectory, 'audio-outcome.json'), `${JSON.stringify(audioOutcome, null, 2)}\n`, 'utf8'),
+      writeFile(resolve(artifactsDirectory, 'edition.json'), `${JSON.stringify(updatedEdition, null, 2)}\n`, 'utf8'),
+    ];
+    if (outcome) writes.unshift(writeFile(resolve(episodesDirectory, 'latest.mp3'), outcome.audio));
+    await Promise.all(writes);
+
+    if (outcome) {
+      await options.telegram.publish({ chatId, metadata: episode, audio: outcome.audio });
+    } else {
+      const fallbackNote = preferences.deliveryMode === 'text_and_audio' ? `\n\n${BOT_COPY.audioUnavailable}` : '';
+      await options.telegram.sendMessage(chatId, `${bulletin}${fallbackNote}`);
+    }
     await options.telegram.sendMessage(chatId, BOT_COPY.generationComplete);
   };
 }
