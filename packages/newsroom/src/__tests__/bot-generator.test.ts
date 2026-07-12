@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -44,10 +44,25 @@ const setup = async (analysisGenerator: AnalysisGenerator, ttsFails = false) => 
   return { generate, directory, search, fetch, fetchDocument, synthesize, publish, sendMessage };
 };
 
+const seedEpisodeSentinels = async (directory: string) => {
+  const episodes = join(directory, 'episodes');
+  const metadata = Buffer.from('sentinel metadata\n');
+  const audio = Buffer.from([0x00, 0xff, 0x49, 0x44, 0x33]);
+  await mkdir(episodes, { recursive: true });
+  await Promise.all([writeFile(join(episodes, 'latest.json'), metadata), writeFile(join(episodes, 'latest.mp3'), audio)]);
+  return { metadata, audio };
+};
+
+const expectEpisodeSentinels = async (directory: string, sentinels: { metadata: Buffer; audio: Buffer }) => {
+  expect(await readFile(join(directory, 'episodes', 'latest.json'))).toEqual(sentinels.metadata);
+  expect(await readFile(join(directory, 'episodes', 'latest.mp3'))).toEqual(sentinels.audio);
+};
+
 describe('LLM personalized briefing generator', () => {
   it('rejects disallowed domains before fetch and writes safe policy diagnostics', async () => {
     const analysisGenerator: AnalysisGenerator = { generate: vi.fn() };
     const harness = await setup(analysisGenerator);
+    const sentinels = await seedEpisodeSentinels(harness.directory);
     harness.search.mockResolvedValue([{ ...searchResult, url: 'https://evil-meta.com/story' }]);
     await expect(harness.generate('42', textPrefs)).rejects.toThrow('No stories matched');
     expect(harness.fetchDocument).not.toHaveBeenCalled();
@@ -56,7 +71,30 @@ describe('LLM personalized briefing generator', () => {
     const report = JSON.parse(await readFile(join(harness.directory, 'artifacts', 'search-policy-filter-report.json'), 'utf8'));
     expect(policy.topicId).toBe('ai-glasses');
     expect(report.rejected[0].reasons).toContain('source domain not allowed');
-    await expect(readFile(join(harness.directory, 'episodes', 'latest.json'))).rejects.toThrow();
+    expect(harness.synthesize).not.toHaveBeenCalled();
+    expect(harness.publish).not.toHaveBeenCalled();
+    await expectEpisodeSentinels(harness.directory, sentinels);
+  });
+
+  it.each([
+    ['unrelated', 'Published July 10, 2026\nA gardening article about tomato irrigation.'],
+    ['excluded', 'Published July 10, 2026\nAI Glasses startup coverage involving politics.'],
+  ])('rejects Linkup title and snippet matches when fetched original content is %s', async (_label, markdown) => {
+    const analysisGenerator: AnalysisGenerator = { generate: vi.fn() };
+    const harness = await setup(analysisGenerator);
+    const sentinels = await seedEpisodeSentinels(harness.directory);
+    harness.fetchDocument.mockResolvedValue({
+      markdown,
+      rawHtml: '<meta property="article:published_time" content="2026-07-10T09:30:00Z">',
+    });
+    const preferences = _label === 'excluded'
+      ? { ...audioPrefs, analysisAngles: 'Startup Opportunities' }
+      : audioPrefs;
+    await expect(harness.generate('42', preferences)).rejects.toThrow('No stories matched');
+    expect(analysisGenerator.generate).not.toHaveBeenCalled();
+    expect(harness.synthesize).not.toHaveBeenCalled();
+    expect(harness.publish).not.toHaveBeenCalled();
+    await expectEpisodeSentinels(harness.directory, sentinels);
   });
   it('passes the exact window to search and reuses the pre-ranking original fetch', async () => {
     const analysisGenerator: AnalysisGenerator = { generate: vi.fn(async ({ stories }) => validAnalysis(stories[0].id)) };
@@ -81,12 +119,13 @@ describe('LLM personalized briefing generator', () => {
   ])('rejects %s originals before analysis, audio, or episode writes', async (_label, markdown) => {
     const analysisGenerator: AnalysisGenerator = { generate: vi.fn() };
     const harness = await setup(analysisGenerator);
+    const sentinels = await seedEpisodeSentinels(harness.directory);
     harness.fetchDocument.mockResolvedValue({ markdown });
     await expect(harness.generate('42', textPrefs)).rejects.toThrow('No stories were published within Past 3 Days');
     expect(analysisGenerator.generate).not.toHaveBeenCalled();
     expect(harness.synthesize).not.toHaveBeenCalled();
     expect(harness.publish).not.toHaveBeenCalled();
-    await expect(readFile(join(harness.directory, 'episodes', 'latest.json'))).rejects.toThrow();
+    await expectEpisodeSentinels(harness.directory, sentinels);
     const report = JSON.parse(await readFile(join(harness.directory, 'artifacts', 'publication-filter-report.json'), 'utf8'));
     expect(report.eligible).toEqual([]);
     expect(report.rejected).toHaveLength(1);
@@ -101,8 +140,8 @@ describe('LLM personalized briefing generator', () => {
       { ...searchResult, name: 'Old AI Glasses feature story', url: 'https://meta.com/old' },
     ]);
     harness.fetchDocument
-      .mockResolvedValueOnce({ markdown: 'Published July 10, 2026\nA detailed launch report with practical product information.' })
-      .mockResolvedValueOnce({ markdown: 'Published July 9, 2026\nA detailed launch report with practical product information.' })
+      .mockResolvedValueOnce({ markdown: 'Published July 10, 2026\nA detailed launch report with practical product information. AI Glasses product feature.' })
+      .mockResolvedValueOnce({ markdown: 'Published July 9, 2026\nA detailed launch report with practical product information. AI Glasses product feature.' })
       .mockResolvedValueOnce({ markdown: 'Published June 2, 2026\nOld' });
     await harness.generate('42', textPrefs);
     const rundown = JSON.parse(await readFile(join(harness.directory, 'artifacts', 'rundown.json'), 'utf8'));

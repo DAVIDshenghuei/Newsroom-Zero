@@ -83,6 +83,30 @@ describe('data-driven search policy', () => {
   });
 
   it.each([
+    'https://example.com', 'example.com/path', 'example.com?x=1', 'example.com#part',
+    'example.com:443', 'exa mple.com', '"example.com"', 'example.com OR evil.com',
+    '*.example.com', '-example.com', 'example-.com', 'example..com', '.example.com',
+  ])('rejects non-canonical source domain %s', (domain) => {
+    expect(TopicProfileSchema.safeParse({
+      id: 'example', topicLabel: 'Example', menuLabel: 'Example',
+      sourceTiers: { tier1: [{ name: 'Example', domain }], tier2: [], tier3: [] },
+      activeSearchTiers: ['tier1'], excludedSources: [], includeKeywords: ['AI'], excludeKeywords: [],
+      suggestedTimeRange: '24h',
+    }).success).toBe(false);
+  });
+
+  it('trims and lowercases canonical DNS source domains while preserving subdomain matching', () => {
+    const result = TopicProfileSchema.parse({
+      id: 'example', topicLabel: 'Example', menuLabel: 'Example',
+      sourceTiers: { tier1: [{ name: 'Example', domain: '  News.Example.COM  ' }], tier2: [], tier3: [] },
+      activeSearchTiers: ['tier1'], excludedSources: [], includeKeywords: ['AI'], excludeKeywords: [],
+      suggestedTimeRange: '24h',
+    });
+    expect(result.sourceTiers.tier1[0].domain).toBe('news.example.com');
+    expect(hostMatchesDomain('updates.news.example.com', result.sourceTiers.tier1[0].domain)).toBe(true);
+  });
+
+  it.each([
     ['topic label', { topicLabel: '   ' }],
     ['topic menu label', { menuLabel: '   ' }],
     ['include keyword', { includeKeywords: ['   '] }],
@@ -113,11 +137,16 @@ describe('data-driven search policy', () => {
     });
     const report = filterBySearchPolicy([
       { id: 'fetched', url: 'https://openai.com/news', name: 'New release', content: 'Brief snippet', original: 'An AI Agent startup launches developer tools.' },
-      { id: 'excluded', url: 'https://openai.com/politics', name: 'AI Agent funding', content: 'Politics and celebrity opinion' },
+      { id: 'excluded', url: 'https://openai.com/politics', name: 'AI Agent funding', content: 'harmless snippet', original: 'An AI Agent startup launch involving politics.' },
       { id: 'bad-host', url: 'https://evil-openai.com/news', name: 'AI Agent startup', content: 'Funding' },
+      { id: 'metadata-only', url: 'https://openai.com/irrelevant', name: 'AI Agent startup funding', content: 'Developer tools launch', original: 'A gardening article about tomato irrigation.' },
+      { id: 'blank-original', url: 'https://openai.com/blank', name: 'AI Agent startup funding', content: 'Developer tools launch', original: '   ' },
     ], policy);
     expect(report.eligibleIds).toEqual(['fetched']);
     expect(report.rejected.find(({ id }) => id === 'excluded')?.reasons).toContain('excluded keyword');
     expect(report.rejected.find(({ id }) => id === 'bad-host')?.reasons).toContain('source domain not allowed');
+    expect(report.rejected.find(({ id }) => id === 'metadata-only')?.reasons).toEqual(expect.arrayContaining(['missing topic keyword', 'missing analysis keyword']));
+    expect(report.rejected.find(({ id }) => id === 'metadata-only')?.matchedPreferredTerms).toEqual([]);
+    expect(report.rejected.find(({ id }) => id === 'blank-original')?.reasons).toEqual(expect.arrayContaining(['missing topic keyword', 'missing analysis keyword']));
   });
 });

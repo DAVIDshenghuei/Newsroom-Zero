@@ -5,9 +5,12 @@ import { z } from 'zod';
 import type { PublicationWindow } from './linkup.js';
 
 const TrimmedNonEmptyStringSchema = z.string().trim().min(1);
+const DnsHostnameSchema = z.string().trim().toLowerCase()
+  .max(253)
+  .regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/);
 const SourceSchema = z.object({
   name: TrimmedNonEmptyStringSchema,
-  domain: TrimmedNonEmptyStringSchema,
+  domain: DnsHostnameSchema,
 }).strict();
 const SourceTiersSchema = z.object({
   tier1: z.array(SourceSchema).min(1), tier2: z.array(SourceSchema).default([]), tier3: z.array(SourceSchema).default([]),
@@ -81,13 +84,29 @@ export type PolicyRejectionReason = 'source domain not allowed' | 'excluded sour
 export interface PolicyCandidateInput { id: string; url?: string; name: string; content: string; original?: string }
 export interface PolicyFilterItem { id: string; url?: string; accepted: boolean; reasons: PolicyRejectionReason[]; matchedTopicTerms: string[]; matchedAnalysisTerms: string[]; matchedPreferredTerms: string[]; matchedExcludedTerms: string[]; sourceTier?: 'tier1' | 'tier2' }
 export interface SearchPolicyFilterReport { eligibleIds: string[]; rejected: PolicyFilterItem[]; evaluated: PolicyFilterItem[] }
+export function filterBySourceDomain(candidates: Pick<PolicyCandidateInput, 'id' | 'url'>[], policy: SearchPolicy): SearchPolicyFilterReport {
+  const evaluated = candidates.map((candidate): PolicyFilterItem => {
+    let host = '';
+    try { host = candidate.url ? new URL(candidate.url).hostname : ''; } catch { /* rejected below */ }
+    const excludedSource = policy.excludedSources.some(({ domain }) => hostMatchesDomain(host, domain));
+    const source = policy.activeSources.find(({ domain }) => hostMatchesDomain(host, domain));
+    const reasons: PolicyRejectionReason[] = [];
+    if (excludedSource) reasons.push('excluded source domain');
+    else if (!source) reasons.push('source domain not allowed');
+    return {
+      id: candidate.id, url: candidate.url, accepted: reasons.length === 0, reasons,
+      matchedTopicTerms: [], matchedAnalysisTerms: [], matchedPreferredTerms: [], matchedExcludedTerms: [], sourceTier: source?.tier,
+    };
+  });
+  return { eligibleIds: evaluated.filter(({ accepted }) => accepted).map(({ id }) => id), rejected: evaluated.filter(({ accepted }) => !accepted), evaluated };
+}
 export function filterBySearchPolicy(candidates: PolicyCandidateInput[], policy: SearchPolicy): SearchPolicyFilterReport {
   const evaluated = candidates.map((candidate): PolicyFilterItem => {
     let host = '';
     try { host = candidate.url ? new URL(candidate.url).hostname : ''; } catch { /* rejected below */ }
     const excludedSource = policy.excludedSources.some(({ domain }) => hostMatchesDomain(host, domain));
     const source = policy.activeSources.find(({ domain }) => hostMatchesDomain(host, domain));
-    const text = `${candidate.name}\n${candidate.content}\n${candidate.original ?? ''}`;
+    const text = candidate.original?.trim() ?? '';
     const matchedTopicTerms = evaluatePolicyText(text, policy.topicKeywords);
     const matchedAnalysisTerms = evaluatePolicyText(text, policy.analysisKeywords);
     const matchedPreferredTerms = evaluatePolicyText(text, policy.preferredKeywords);

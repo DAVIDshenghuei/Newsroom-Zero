@@ -17,7 +17,7 @@ import {
 import type { InlineKeyboardMarkup, TelegramClient, TelegramUpdate } from './telegram.js';
 import { concise, DEFAULT_ELEVENLABS_VOICE_ID, EpisodeMetadataSchema, type VoiceSynthesizer } from './voice.js';
 import type { SynthesizeOutcomeFunction, VoiceSynthesisOutcome } from './pocket-tts.js';
-import { buildSearchQuery, composeSearchPolicy, filterBySearchPolicy } from './search-policy.js';
+import { buildSearchQuery, composeSearchPolicy, filterBySearchPolicy, filterBySourceDomain } from './search-policy.js';
 
 export const TIME_RANGES = ['Past 24 Hours', 'Past 3 Days', 'Past 7 Days'] as const;
 export type TimeRange = typeof TIME_RANGES[number];
@@ -340,11 +340,8 @@ export function createBriefingGenerator(options: GeneratorOptions) {
     const candidates = linkupResultsToCandidates(
       await options.linkup.search(searchQuery, searchOptions), createdAt,
     );
-    const sourceReport = filterBySearchPolicy(candidates.map((candidate) => ({
-      id: candidate.id, url: candidate.url, name: candidate.headline, content: candidate.body,
-    })), searchPolicy);
-    const sourceEligible = new Set(sourceReport.evaluated.filter((item) => !item.reasons.some((reason) =>
-      reason === 'source domain not allowed' || reason === 'excluded source domain')).map(({ id }) => id));
+    const sourceReport = filterBySourceDomain(candidates, searchPolicy);
+    const sourceEligible = new Set(sourceReport.eligibleIds);
     const fetchedOriginals = new Map<string, { markdown?: string; error?: string }>();
     const sourceCandidates = candidates.filter(({ id }) => sourceEligible.has(id));
     const datedCandidates = await Promise.all(sourceCandidates.map(async (candidate) => {
