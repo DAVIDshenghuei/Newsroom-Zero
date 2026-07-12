@@ -29,9 +29,13 @@ export default async function LatestEpisodePage() {
               Fact Gate: {episode.factGate.approved ? 'Approved' : 'Blocked'}
             </span>
           </div>
-          <audio controls preload="metadata" src={episode.audioUrl}>
-            Your browser does not support HTML audio.
-          </audio>
+          {episode.audioUrl ? (
+            <audio controls preload="metadata" src={episode.audioUrl}>
+              Your browser does not support HTML audio.
+            </audio>
+          ) : (
+            <p className="episode-empty">This briefing is available as text only.</p>
+          )}
           <section className="citations">
             <h2>Stories and sources</h2>
             <ol>

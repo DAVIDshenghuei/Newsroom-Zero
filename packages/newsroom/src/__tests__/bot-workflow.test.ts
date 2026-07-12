@@ -2,7 +2,7 @@ import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { BotStateStore, NewsroomBot, createResearchQuery, linkupResultsToCandidates } from '../bot.js';
+import { BotStateStore, NewsroomBot, createResearchQuery, linkupResultsToCandidates, splitTelegramText } from '../bot.js';
 import type { LinkupSearchResult } from '../linkup.js';
 
 const results: LinkupSearchResult[] = [{
@@ -10,6 +10,14 @@ const results: LinkupSearchResult[] = [{
 }];
 
 describe('topic-aware bot workflow', () => {
+  it('splits long Telegram text below the platform limit without losing content', () => {
+    const text = `${'word '.repeat(1_000)}\n\n${'source '.repeat(700)}`.trim();
+    const chunks = splitTelegramText(text);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every((chunk) => chunk.length <= 4_000)).toBe(true);
+    expect(chunks.join(' ').replace(/\s+/g, ' ')).toBe(text.replace(/\s+/g, ' '));
+  });
+
   it('builds a query from every stored preference and deterministically validates candidates', () => {
     const query = createResearchQuery({
       topics: 'AI Agents, Claude Code', analysisAngles: 'Product Strategy', timeRange: 'Past 3 Days',

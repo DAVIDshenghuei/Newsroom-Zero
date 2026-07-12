@@ -106,6 +106,22 @@ export function createResearchQuery(preferences: ResearchPreferences): string {
   return `Latest AI news about ${preferences.topics}. Focus analysis on ${preferences.analysisAngles}. Time range: ${preferences.timeRange}. Return concrete, source-backed developments in English only.`;
 }
 
+export function splitTelegramText(text: string, limit = 4_000): string[] {
+  if (text.length <= limit) return [text];
+  const chunks: string[] = [];
+  let remaining = text;
+  while (remaining.length > limit) {
+    let splitAt = remaining.lastIndexOf('\n\n', limit);
+    if (splitAt < limit / 2) splitAt = remaining.lastIndexOf('\n', limit);
+    if (splitAt < limit / 2) splitAt = remaining.lastIndexOf(' ', limit);
+    if (splitAt < 1) splitAt = limit;
+    chunks.push(remaining.slice(0, splitAt).trim());
+    remaining = remaining.slice(splitAt).trim();
+  }
+  if (remaining) chunks.push(remaining);
+  return chunks;
+}
+
 export function linkupResultsToCandidates(results: LinkupSearchResult[], fetchedAt: string): StoryCandidate[] {
   return results.map((result) => {
     const url = new URL(result.url);
@@ -228,13 +244,18 @@ export class NewsroomBot {
     }
     await this.options.store.setOffset(offset);
     if (data !== 'generate_now') return;
-    if (!chat || chat.step !== 'confirm' || !chat.topics || !chat.analysisAngles || !chat.timeRange || !chat.deliveryMode) {
+    let effectiveChat = chat;
+    if (chat?.step === 'confirm' && chat.topics && chat.analysisAngles && chat.timeRange && !chat.deliveryMode) {
+      effectiveChat = { ...chat, deliveryMode: 'text_and_audio' };
+      await this.options.store.setChat(chatId, effectiveChat);
+    }
+    if (!effectiveChat || effectiveChat.step !== 'confirm' || !effectiveChat.topics || !effectiveChat.analysisAngles || !effectiveChat.timeRange || !effectiveChat.deliveryMode) {
       this.generating.delete(chatId);
       await this.options.telegram.sendMessage(chatId, BOT_COPY.expired);
       return;
     }
     await this.options.telegram.sendMessage(chatId, BOT_COPY.generating);
-    void this.runGeneration(chatId, chat as ResearchPreferences & ChatState);
+    void this.runGeneration(chatId, effectiveChat as ResearchPreferences & ChatState);
   }
 
   private async runGeneration(chatId: string, preferences: ResearchPreferences): Promise<void> {
@@ -319,7 +340,9 @@ export function createBriefingGenerator(options: GeneratorOptions) {
       provider: outcome?.provider, fallbackUsed: outcome?.fallbackUsed,
       stories: storyMetadata, factGate,
     });
-    const updatedEdition = EditionArtifactSchema.parse({ ...edition, status: 'voiced' });
+    const updatedEdition = outcome
+      ? EditionArtifactSchema.parse({ ...edition, status: 'voiced' })
+      : edition;
     const episodesDirectory = options.episodesDirectory ?? resolve(process.cwd(), 'apps/web/public/episodes');
     await mkdir(episodesDirectory, { recursive: true });
 
@@ -340,8 +363,13 @@ export function createBriefingGenerator(options: GeneratorOptions) {
     if (outcome) {
       await options.telegram.publish({ chatId, metadata: episode, audio: outcome.audio });
     } else {
-      const fallbackNote = preferences.deliveryMode === 'text_and_audio' ? `\n\n${BOT_COPY.audioUnavailable}` : '';
-      await options.telegram.sendMessage(chatId, `${bulletin}${fallbackNote}`);
+      const sources = storyMetadata.map((story, index) =>
+        `${index + 1}. ${story.headline}\n${story.url}`).join('\n\n');
+      const fallbackNote = preferences.deliveryMode === 'text_and_audio' ? `${BOT_COPY.audioUnavailable}\n\n` : '';
+      const textBriefing = `${fallbackNote}${bulletin}\n\nSources\n${sources}`;
+      for (const chunk of splitTelegramText(textBriefing)) {
+        await options.telegram.sendMessage(chatId, chunk);
+      }
     }
     await options.telegram.sendMessage(chatId, BOT_COPY.generationComplete);
   };
