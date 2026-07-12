@@ -78,11 +78,12 @@ const stripFence = (value: string): string => {
   return (match?.[1] ?? trimmed).trim();
 };
 export const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-5-20250929';
-export interface AnthropicAnalysisGeneratorOptions { apiKey: string; model?: string; fetch?: typeof globalThis.fetch; timeoutMs?: number }
+export interface AnthropicAnalysisGeneratorOptions { apiKey: string; model?: string; baseUrl?: string; fetch?: typeof globalThis.fetch; timeoutMs?: number }
 
 export class AnthropicAnalysisGenerator implements AnalysisGenerator {
   private readonly apiKey: string;
   private readonly model: string;
+  private readonly baseUrl: string;
   private readonly request: typeof globalThis.fetch;
   private readonly timeoutMs: number;
 
@@ -90,6 +91,7 @@ export class AnthropicAnalysisGenerator implements AnalysisGenerator {
     if (!options.apiKey.trim()) throw new Error('Anthropic API credential is required');
     this.apiKey = options.apiKey;
     this.model = options.model ?? DEFAULT_ANTHROPIC_MODEL;
+    this.baseUrl = (options.baseUrl ?? 'https://api.anthropic.com').replace(/\/$/, '');
     this.request = options.fetch ?? globalThis.fetch;
     this.timeoutMs = options.timeoutMs ?? 60_000;
   }
@@ -97,7 +99,7 @@ export class AnthropicAnalysisGenerator implements AnalysisGenerator {
   async generate(input: AnalysisInput): Promise<LlmAnalysis> {
     let response: Response;
     try {
-      response = await this.request('https://api.anthropic.com/v1/messages', {
+      response = await this.request(`${this.baseUrl}/v1/messages`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': this.apiKey, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({

@@ -53,8 +53,9 @@ describe('AnthropicAnalysisGenerator', () => {
     const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       content: [{ type: 'text', text: `\`\`\`json\n${JSON.stringify(analysis)}\n\`\`\`` }],
     }), { status: 200 }));
-    const generator = new AnthropicAnalysisGenerator({ apiKey: 'fixture-value', model: 'fixture-model', fetch });
+    const generator = new AnthropicAnalysisGenerator({ apiKey: 'test-key', model: 'fixture-model', baseUrl: 'https://compatible.example/anthropic/', fetch });
     await expect(generator.generate(input)).resolves.toEqual(analysis);
+    expect(fetch.mock.calls[0][0]).toBe('https://compatible.example/anthropic/v1/messages');
     const request = fetch.mock.calls[0][1] as RequestInit;
     const body = JSON.parse(String(request.body));
     expect(body.system).toContain('untrusted data');

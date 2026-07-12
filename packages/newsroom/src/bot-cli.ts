@@ -20,6 +20,7 @@ async function main(): Promise<void> {
   const elevenlabs = elevenlabsKey ? new ElevenLabsClient({ apiKey: elevenlabsKey }) : undefined;
   const analysisGenerator = new AnthropicAnalysisGenerator({
     apiKey: required('ANTHROPIC_API_KEY'),
+    baseUrl: process.env.ANTHROPIC_BASE_URL,
     model: process.env.ANTHROPIC_MODEL,
   });
 
