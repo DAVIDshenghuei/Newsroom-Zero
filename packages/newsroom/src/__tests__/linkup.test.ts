@@ -23,11 +23,18 @@ describe('LinkupClient', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ markdown: '# Original\nVerified body' }), { status: 200 }));
     const client = new LinkupClient({ apiKey: 'top-secret', fetch });
 
-    await expect(client.search('Exact headline Example Wire', { from: '2026-07-08T12:00:00.000Z', to: '2026-07-11T12:00:00.000Z' })).resolves.toHaveLength(1);
+    await expect(client.search('Exact headline Example Wire', {
+      from: '2026-07-08T12:00:00.000Z', to: '2026-07-11T12:00:00.000Z',
+      includeDomains: ['openai.com', 'anthropic.com'], excludeDomains: ['cnn.com', 'foxnews.com'],
+    })).resolves.toHaveLength(1);
     await expect(client.fetch('https://example.com/original')).resolves.toBe('# Original\nVerified body');
     expect(fetch).toHaveBeenNthCalledWith(1, 'https://api.linkup.so/v1/search', expect.objectContaining({
       method: 'POST', headers: expect.objectContaining({ Authorization: 'Bearer top-secret' }),
-      body: JSON.stringify({ q: 'Exact headline Example Wire', depth: 'standard', outputType: 'searchResults', fromDate: '2026-07-08', toDate: '2026-07-11' }),
+      body: JSON.stringify({
+        q: 'Exact headline Example Wire', depth: 'standard', outputType: 'searchResults',
+        fromDate: '2026-07-08', toDate: '2026-07-11',
+        includeDomains: ['openai.com', 'anthropic.com'], excludeDomains: ['cnn.com', 'foxnews.com'],
+      }),
     }));
     expect(fetch).toHaveBeenNthCalledWith(2, 'https://api.linkup.so/v1/fetch', expect.objectContaining({
       method: 'POST',
@@ -68,7 +75,8 @@ describe('extractPublishedAt', () => {
   it.each([
     ['JSON-LD', '<script type="application/ld+json">{"datePublished":"2026-07-11T09:15:00Z"}</script>', '2026-07-11T09:15:00.000Z'],
     ['meta', '<meta property="article:published_time" content="2026-07-10T08:00:00+02:00">', '2026-07-10T06:00:00.000Z'],
-    ['time', '<time datetime="2026-07-09T07:30:00Z">Today</time>', '2026-07-09T07:30:00.000Z'],
+    ['semantic time', '<time itemprop="datePublished" datetime="2026-07-09T07:30:00Z">Today</time>', '2026-07-09T07:30:00.000Z'],
+    ['semantic time with reversed attributes', '<time datetime="2026-07-08T06:20:00Z" itemprop="datePublished">Yesterday</time>', '2026-07-08T06:20:00.000Z'],
     ['visible US date', 'Published Jan 16, 2026', '2026-01-16T00:00:00.000Z'],
     ['visible long date', 'Published 20 January 2026', '2026-01-20T00:00:00.000Z'],
     ['visible month date', 'Published June 2, 2026', '2026-06-02T00:00:00.000Z'],
@@ -82,6 +90,13 @@ describe('extractPublishedAt', () => {
 
   it('does not treat Updated-only visible text as publication time', () => {
     expect(extractPublishedAt('Updated June 2, 2026')).toBeUndefined();
+  });
+
+  it.each([
+    ['generic time', '<time datetime="2026-07-09T07:30:00Z">Event starts today</time>'],
+    ['update-specific time', '<time class="updated" datetime="2026-07-10T10:00:00Z">Updated today</time>'],
+  ])('rejects %s markup without publication semantics', (_label, content) => {
+    expect(extractPublishedAt(content)).toBeUndefined();
   });
 });
 

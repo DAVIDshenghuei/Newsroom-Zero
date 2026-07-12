@@ -8,7 +8,7 @@ import { BOT_COPY } from '../bot-copy.js';
 
 const audioPrefs = { topics: 'AI Glasses', analysisAngles: 'Product Strategy', timeRange: 'Past 3 Days' as const, deliveryMode: 'text_and_audio' as const };
 const textPrefs = { topics: 'AI Glasses', analysisAngles: 'Product Strategy', timeRange: 'Past 3 Days' as const, deliveryMode: 'text_only' as const };
-const searchResult = { name: 'A verified AI glasses launch', url: 'https://example.com/launch', content: 'A detailed launch report.', type: 'text' as const };
+const searchResult = { name: 'A verified AI Glasses feature launch', url: 'https://meta.com/launch', content: 'A detailed product feature report.', type: 'text' as const };
 
 const validAnalysis = (storyId: string) => {
   const supportingQuotes = [{ storyId, quote: 'A detailed launch report with practical product information.' }];
@@ -27,7 +27,7 @@ const setup = async (analysisGenerator: AnalysisGenerator, ttsFails = false) => 
   const search = vi.fn().mockResolvedValue([searchResult]);
   const fetch = vi.fn().mockResolvedValue('Published July 10, 2026\n# Verified article\nA detailed launch report with practical product information.');
   const fetchDocument = vi.fn().mockResolvedValue({
-    markdown: '# Verified article\nA detailed launch report with practical product information.',
+    markdown: '# Verified AI Glasses product feature article\nA detailed launch report with practical product information.',
     rawHtml: '<meta property="article:published_time" content="2026-07-10T09:30:00Z">',
   });
   const synthesize = ttsFails
@@ -45,13 +45,29 @@ const setup = async (analysisGenerator: AnalysisGenerator, ttsFails = false) => 
 };
 
 describe('LLM personalized briefing generator', () => {
+  it('rejects disallowed domains before fetch and writes safe policy diagnostics', async () => {
+    const analysisGenerator: AnalysisGenerator = { generate: vi.fn() };
+    const harness = await setup(analysisGenerator);
+    harness.search.mockResolvedValue([{ ...searchResult, url: 'https://evil-meta.com/story' }]);
+    await expect(harness.generate('42', textPrefs)).rejects.toThrow('No stories matched');
+    expect(harness.fetchDocument).not.toHaveBeenCalled();
+    expect(analysisGenerator.generate).not.toHaveBeenCalled();
+    const policy = JSON.parse(await readFile(join(harness.directory, 'artifacts', 'search-policy.json'), 'utf8'));
+    const report = JSON.parse(await readFile(join(harness.directory, 'artifacts', 'search-policy-filter-report.json'), 'utf8'));
+    expect(policy.topicId).toBe('ai-glasses');
+    expect(report.rejected[0].reasons).toContain('source domain not allowed');
+    await expect(readFile(join(harness.directory, 'episodes', 'latest.json'))).rejects.toThrow();
+  });
   it('passes the exact window to search and reuses the pre-ranking original fetch', async () => {
     const analysisGenerator: AnalysisGenerator = { generate: vi.fn(async ({ stories }) => validAnalysis(stories[0].id)) };
     const harness = await setup(analysisGenerator);
     await harness.generate('42', textPrefs);
     expect(harness.search).toHaveBeenNthCalledWith(1, expect.any(String), {
       from: '2026-07-08T12:00:00.000Z', to: '2026-07-11T12:00:00.000Z',
+      includeDomains: ['meta.com', 'google.com', 'snap.com', 'xreal.com', 'brilliant.xyz', 'viture.com', 'rayneo.com', 'uploadvr.com', 'roadtovr.com'],
+      excludeDomains: [],
     });
+    expect(harness.search.mock.calls[0]?.[0]).not.toContain('site:');
     expect(harness.fetchDocument).toHaveBeenCalledTimes(1);
     expect(harness.fetch).not.toHaveBeenCalled();
     const rundown = JSON.parse(await readFile(join(harness.directory, 'artifacts', 'rundown.json'), 'utf8'));
@@ -81,8 +97,8 @@ describe('LLM personalized briefing generator', () => {
     const harness = await setup(analysisGenerator);
     harness.search.mockResolvedValue([
       searchResult,
-      { ...searchResult, name: 'Second current story', url: 'https://example.com/current-two' },
-      { ...searchResult, name: 'Old story', url: 'https://example.com/old' },
+      { ...searchResult, name: 'Second current AI Glasses feature story', url: 'https://meta.com/current-two' },
+      { ...searchResult, name: 'Old AI Glasses feature story', url: 'https://meta.com/old' },
     ]);
     harness.fetchDocument
       .mockResolvedValueOnce({ markdown: 'Published July 10, 2026\nA detailed launch report with practical product information.' })

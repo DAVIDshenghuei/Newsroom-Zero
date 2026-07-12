@@ -36,8 +36,16 @@ export interface LinkupFetchedDocument { markdown: string; rawHtml?: string }
 
 export interface PublicationWindow { from: string; to: string }
 
+export const LinkupSearchOptionsSchema = z.object({
+  from: z.string().datetime(),
+  to: z.string().datetime(),
+  includeDomains: z.array(z.string().min(1)).optional(),
+  excludeDomains: z.array(z.string().min(1)).optional(),
+}).strict();
+export type LinkupSearchOptions = z.infer<typeof LinkupSearchOptionsSchema>;
+
 export interface LinkupResearchClient {
-  search(query: string, window?: PublicationWindow): Promise<LinkupSearchResult[]>;
+  search(query: string, options?: LinkupSearchOptions): Promise<LinkupSearchResult[]>;
   fetch(url: string): Promise<string>;
   fetchDocument?(url: string): Promise<LinkupFetchedDocument>;
 }
@@ -62,10 +70,13 @@ export class LinkupClient implements LinkupResearchClient {
     this.baseUrl = (options.baseUrl ?? 'https://api.linkup.so').replace(/\/$/, '');
   }
 
-  async search(query: string, window?: PublicationWindow): Promise<LinkupSearchResult[]> {
+  async search(query: string, options?: LinkupSearchOptions): Promise<LinkupSearchResult[]> {
+    const validated = options ? LinkupSearchOptionsSchema.parse(options) : undefined;
     const value = await this.post('/v1/search', {
       q: query, depth: 'standard', outputType: 'searchResults',
-      ...(window ? { fromDate: window.from.slice(0, 10), toDate: window.to.slice(0, 10) } : {}),
+      ...(validated ? { fromDate: validated.from.slice(0, 10), toDate: validated.to.slice(0, 10) } : {}),
+      ...(validated?.includeDomains !== undefined ? { includeDomains: validated.includeDomains } : {}),
+      ...(validated?.excludeDomains !== undefined ? { excludeDomains: validated.excludeDomains } : {}),
     }, LinkupSearchResponseSchema, 'search');
     return value.results;
   }
@@ -138,11 +149,17 @@ export function extractPublishedAt(content: string): string | undefined {
     /["']datePublished["']\s*:\s*["']([^"']+)["']/i,
     /<meta\b[^>]*(?:property|name)=["'](?:article:published_time|datePublished)["'][^>]*content=["']([^"']+)["'][^>]*>/i,
     /<meta\b[^>]*content=["']([^"']+)["'][^>]*(?:property|name)=["'](?:article:published_time|datePublished)["'][^>]*>/i,
-    /<time\b[^>]*datetime=["']([^"']+)["'][^>]*>/i,
   ];
   for (const pattern of machinePatterns) {
     const match = content.match(pattern);
     if (match) return toIso(match[1]);
+  }
+  for (const match of content.matchAll(/<time\b[^>]*>/gi)) {
+    const tag = match[0];
+    const itemProp = /\bitemprop\s*=\s*["']([^"']*)["']/i.exec(tag)?.[1];
+    if (!itemProp?.split(/\s+/).some((value) => value.toLowerCase() === 'datepublished')) continue;
+    const datetime = /\bdatetime\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1];
+    if (datetime) return toIso(datetime);
   }
   const month = '(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)';
   const visiblePatterns = [

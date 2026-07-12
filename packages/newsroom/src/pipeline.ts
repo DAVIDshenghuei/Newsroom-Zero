@@ -24,6 +24,8 @@ export const RankedStorySchema = PipelineStoryCandidateSchema.extend({
   ranking: z.object({
     recency: z.number().finite(),
     bodyCompleteness: z.number().int().nonnegative(),
+    sourcePriority: z.number().int().min(1).max(2).optional(),
+    policyRelevance: z.number().int().nonnegative().optional(),
   }),
 });
 export type RankedStory = z.infer<typeof RankedStorySchema>;
@@ -123,18 +125,26 @@ export function filterCandidatesByPublicationWindow(
   return { window, eligible, rejected };
 }
 
-function compareStories(left: StoryCandidate, right: StoryCandidate): number {
-  return recency(right) - recency(left)
+export interface StoryPolicyRanking { sourceTier: 'tier1' | 'tier2'; matchedTerms: string[] }
+function compareStories(left: StoryCandidate, right: StoryCandidate, policy?: ReadonlyMap<string, StoryPolicyRanking>): number {
+  const leftPolicy = policy?.get(left.id);
+  const rightPolicy = policy?.get(right.id);
+  return (leftPolicy?.sourceTier === 'tier1' ? 0 : 1) - (rightPolicy?.sourceTier === 'tier1' ? 0 : 1)
+    || (rightPolicy?.matchedTerms.length ?? 0) - (leftPolicy?.matchedTerms.length ?? 0)
+    || recency(right) - recency(left)
     || right.body.trim().length - left.body.trim().length
     || compareText(left.id, right.id);
 }
 
-export function rankStories(candidates: StoryCandidate[]): RankedStory[] {
+export function rankStories(candidates: StoryCandidate[], policy?: ReadonlyMap<string, StoryPolicyRanking>): RankedStory[] {
   const valid = PipelineStoryCandidateSchema.array().parse(candidates);
   const seenUrls = new Set<string>();
   const urlUnique: Array<StoryCandidate & { url: string }> = [];
+  const deduplicationOrder = [...valid].sort(policy
+    ? (left, right) => compareStories(left, right, policy)
+    : (left, right) => compareText(left.id, right.id));
 
-  for (const candidate of [...valid].sort((left, right) => compareText(left.id, right.id))) {
+  for (const candidate of deduplicationOrder) {
     if (!candidate.url) continue;
     const canonicalUrl = canonicalizeUrl(candidate.url);
     if (seenUrls.has(canonicalUrl)) continue;
@@ -150,7 +160,7 @@ export function rankStories(candidates: StoryCandidate[]): RankedStory[] {
     seenHeadlines.add(fingerprint);
     unique.push(candidate);
   }
-  unique.sort(compareStories);
+  unique.sort((left, right) => compareStories(left, right, policy));
 
   const selected: Array<StoryCandidate & { url: string }> = [];
   const selectedIds = new Set<string>();
@@ -170,15 +180,24 @@ export function rankStories(candidates: StoryCandidate[]): RankedStory[] {
     }
   }
 
-  return selected.map((candidate, index) => RankedStorySchema.parse({
-    ...candidate,
-    status: 'selected',
-    url: canonicalizeUrl(candidate.url),
-    canonicalUrl: canonicalizeUrl(candidate.url),
-    headlineFingerprint: normalizedHeadlineFingerprint(candidate.headline),
-    rank: index + 1,
-    ranking: { recency: recency(candidate), bodyCompleteness: candidate.body.trim().length },
-  }));
+  return selected.map((candidate, index) => {
+    const policyMetadata = policy?.get(candidate.id);
+    return RankedStorySchema.parse({
+      ...candidate,
+      status: 'selected',
+      url: canonicalizeUrl(candidate.url),
+      canonicalUrl: canonicalizeUrl(candidate.url),
+      headlineFingerprint: normalizedHeadlineFingerprint(candidate.headline),
+      rank: index + 1,
+      ranking: {
+        recency: recency(candidate), bodyCompleteness: candidate.body.trim().length,
+        ...(policyMetadata ? {
+          sourcePriority: policyMetadata.sourceTier === 'tier1' ? 1 : 2,
+          policyRelevance: policyMetadata.matchedTerms.length,
+        } : {}),
+      },
+    });
+  });
 }
 
 export function writeBulletinScript(stories: RankedStory[], createdAt: string): BulletinScript {

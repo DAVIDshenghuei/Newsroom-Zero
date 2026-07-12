@@ -32,10 +32,13 @@ All Telegram Bot copy and interactions are in English.
 
 ```mermaid
 flowchart LR
-    A[Telegram preferences] --> B[Linkup topic research]
-    B --> C[Validate, deduplicate, and rank]
+    A[Telegram preferences] --> P[Compose JSON topic + analysis policy]
+    P --> B[Linkup policy-constrained research]
+    B --> C[Reject disallowed source domains]
     C --> D[Fetch original sources]
-    D --> E[Anthropic structured analysis]
+    D --> R[Final publication + keyword policy gate]
+    R --> Q[Policy-aware deduplication and ranking]
+    Q --> E[Anthropic structured analysis]
     E --> F[Claim-level citations]
     F --> G{Blocking Fact Gate}
     G -- Approved --> H{Delivery mode}
@@ -62,6 +65,8 @@ flowchart LR
 - Voice generation and publication happen only after Fact Gate approval.
 - Linkup retries only transient network and `5xx` failures; invalid responses and persistent failures remain blocked.
 - API keys are read from `.env` and are never committed.
+- Topic and analysis search policy lives in validated JSON under `packages/newsroom/config/search-policies`; the selected Telegram publication window always overrides a profile's suggested range.
+- Search diagnostics record the composed policy and per-candidate rejection reasons without credentials or provider secrets.
 
 ## Current Capabilities
 

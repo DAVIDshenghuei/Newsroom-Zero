@@ -17,6 +17,7 @@ import {
 import type { InlineKeyboardMarkup, TelegramClient, TelegramUpdate } from './telegram.js';
 import { concise, DEFAULT_ELEVENLABS_VOICE_ID, EpisodeMetadataSchema, type VoiceSynthesizer } from './voice.js';
 import type { SynthesizeOutcomeFunction, VoiceSynthesisOutcome } from './pocket-tts.js';
+import { buildSearchQuery, composeSearchPolicy, filterBySearchPolicy } from './search-policy.js';
 
 export const TIME_RANGES = ['Past 24 Hours', 'Past 3 Days', 'Past 7 Days'] as const;
 export type TimeRange = typeof TIME_RANGES[number];
@@ -294,7 +295,8 @@ export class NewsroomBot {
       await this.options.generate(chatId, preferences);
     } catch (error) {
       const message = error instanceof Error && error.message.startsWith('No stories were published within')
-        ? BOT_COPY.noRecentStories : BOT_COPY.generationFailed;
+        ? BOT_COPY.noRecentStories : error instanceof Error && error.message.startsWith('No stories matched')
+          ? BOT_COPY.noPolicyStories : BOT_COPY.generationFailed;
       await this.options.telegram.sendMessage(chatId, message);
     } finally {
       this.generating.delete(chatId);
@@ -328,11 +330,24 @@ export function createBriefingGenerator(options: GeneratorOptions) {
     const now = (options.now ?? (() => new Date()))();
     const createdAt = now.toISOString();
     const publicationWindow = resolvePublicationWindow(preferences.timeRange, now);
+    const searchPolicy = await composeSearchPolicy(preferences.topics, preferences.analysisAngles, publicationWindow);
+    const searchQuery = buildSearchQuery(searchPolicy);
+    const searchOptions = {
+      ...publicationWindow,
+      includeDomains: [...new Set(searchPolicy.activeSources.map(({ domain }) => domain))],
+      excludeDomains: [...new Set(searchPolicy.excludedSources.map(({ domain }) => domain))],
+    };
     const candidates = linkupResultsToCandidates(
-      await options.linkup.search(createResearchQuery(preferences), publicationWindow), createdAt,
+      await options.linkup.search(searchQuery, searchOptions), createdAt,
     );
+    const sourceReport = filterBySearchPolicy(candidates.map((candidate) => ({
+      id: candidate.id, url: candidate.url, name: candidate.headline, content: candidate.body,
+    })), searchPolicy);
+    const sourceEligible = new Set(sourceReport.evaluated.filter((item) => !item.reasons.some((reason) =>
+      reason === 'source domain not allowed' || reason === 'excluded source domain')).map(({ id }) => id));
     const fetchedOriginals = new Map<string, { markdown?: string; error?: string }>();
-    const datedCandidates = await Promise.all(candidates.map(async (candidate) => {
+    const sourceCandidates = candidates.filter(({ id }) => sourceEligible.has(id));
+    const datedCandidates = await Promise.all(sourceCandidates.map(async (candidate) => {
       try {
         const document = options.linkup.fetchDocument
           ? await options.linkup.fetchDocument(candidate.url!)
@@ -349,11 +364,24 @@ export function createBriefingGenerator(options: GeneratorOptions) {
     }));
     const filterReport = filterCandidatesByPublicationWindow(datedCandidates, publicationWindow);
     const artifactsDirectory = options.artifactsDirectory ?? resolve(process.cwd(), 'artifacts');
+    const policyReport = filterBySearchPolicy(candidates.map((candidate) => ({
+      id: candidate.id, url: candidate.url, name: candidate.headline, content: candidate.body,
+      original: fetchedOriginals.get(candidate.id)?.markdown,
+    })), searchPolicy);
     await writeArtifacts(artifactsDirectory, {
+      'search-policy.json': searchPolicy, 'search-policy-filter-report.json': policyReport,
       'story-candidates.json': datedCandidates, 'publication-filter-report.json': filterReport,
     });
-    const stories = rankStories(filterReport.eligible);
-    if (!stories.length) throw new Error(`No stories were published within ${preferences.timeRange}. Please try a broader news range.`);
+    const policyEligible = new Set(policyReport.eligibleIds);
+    const eligible = filterReport.eligible.filter(({ id }) => policyEligible.has(id));
+    const policyRanking = new Map(policyReport.evaluated.filter(({ accepted }) => accepted).map((item) => [item.id, {
+      sourceTier: item.sourceTier!, matchedTerms: [...item.matchedTopicTerms, ...item.matchedAnalysisTerms, ...item.matchedPreferredTerms],
+    }]));
+    const stories = rankStories(eligible, policyRanking);
+    if (!stories.length) {
+      if (sourceCandidates.length > 0 && !filterReport.eligible.length) throw new Error(`No stories were published within ${preferences.timeRange}. Please try a broader news range.`);
+      throw new Error('No stories matched the selected topic and analysis policy. Please try another selection.');
+    }
     const rundown = { id: `rundown-${createdAt}`, createdAt, stories };
     const searchedEvidence = await gatherLinkupSearchEvidence(stories, options.linkup, publicationWindow);
     const evidence = searchedEvidence.map((item) => {
@@ -373,6 +401,7 @@ export function createBriefingGenerator(options: GeneratorOptions) {
       scriptId: script.id, factGateId: factGate.id, storyIds: stories.map(({ id }) => id),
     });
     await writeArtifacts(artifactsDirectory, {
+      'search-policy.json': searchPolicy, 'search-policy-filter-report.json': policyReport,
       'story-candidates.json': datedCandidates, 'publication-filter-report.json': filterReport,
       'rundown.json': rundown, 'linkup-evidence.json': evidence,
       'llm-analysis.json': analysis, 'script.json': script, 'fact-gate.json': factGate, 'edition.json': edition,

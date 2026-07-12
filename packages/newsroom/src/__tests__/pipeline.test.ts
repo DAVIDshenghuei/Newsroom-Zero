@@ -32,6 +32,49 @@ describe('canonicalizeUrl', () => {
 });
 
 describe('rankStories', () => {
+  it('keeps the tier1 candidate when policy-equivalent normalized headlines are duplicates', () => {
+    const candidates = [
+      story({ id: 'a-tier2', source: 'Tier Two', headline: 'AI Agents: Launch!' }),
+      story({ id: 'z-tier1', source: 'Tier One', headline: 'ai agents launch' }),
+    ];
+    const policy = new Map([
+      ['a-tier2', { sourceTier: 'tier2' as const, matchedTerms: ['AI Agent', 'Launch'] }],
+      ['z-tier1', { sourceTier: 'tier1' as const, matchedTerms: ['AI Agent', 'Launch'] }],
+    ]);
+    expect(rankStories(candidates, policy).map(({ id }) => id)).toEqual(['z-tier1']);
+  });
+
+  it('keeps the tier1 candidate when canonical URLs are duplicates', () => {
+    const candidates = [
+      story({ id: 'a-tier2', source: 'Tier Two', headline: 'Syndicated copy', url: 'https://news.test/item?utm_source=feed' }),
+      story({ id: 'z-tier1', source: 'Tier One', headline: 'Original report', url: 'https://news.test/item#details' }),
+    ];
+    const policy = new Map([
+      ['a-tier2', { sourceTier: 'tier2' as const, matchedTerms: ['AI Agent', 'Launch'] }],
+      ['z-tier1', { sourceTier: 'tier1' as const, matchedTerms: ['AI Agent', 'Launch'] }],
+    ]);
+    expect(rankStories(candidates, policy).map(({ id }) => id)).toEqual(['z-tier1']);
+  });
+
+  it('does not label stories with missing policy metadata as tier1', () => {
+    const ranked = rankStories([story({ id: 'unmapped', source: 'Unknown', headline: 'Unmapped' })], new Map());
+    expect(ranked[0].ranking.sourcePriority).toBeUndefined();
+    expect(ranked[0].ranking.policyRelevance).toBeUndefined();
+  });
+
+  it('ranks source tier and policy relevance before otherwise equal recency', () => {
+    const candidates = [
+      story({ id: 'tier2', source: 'Second', headline: 'Second story' }),
+      story({ id: 'few', source: 'First', headline: 'First few' }),
+      story({ id: 'many', source: 'First More', headline: 'First many' }),
+    ];
+    const policy = new Map([
+      ['tier2', { sourceTier: 'tier2' as const, matchedTerms: ['AI'] }],
+      ['few', { sourceTier: 'tier1' as const, matchedTerms: ['AI'] }],
+      ['many', { sourceTier: 'tier1' as const, matchedTerms: ['AI', 'API'] }],
+    ]);
+    expect(rankStories(candidates, policy).map(({ id }) => id)).toEqual(['many', 'few', 'tier2']);
+  });
   it('never treats fetchedAt as publication recency', () => {
     const ranked = rankStories([
       story({ id: 'unknown', source: 'One', headline: 'Unknown', fetchedAt: '2026-07-11T12:00:00Z' }),
