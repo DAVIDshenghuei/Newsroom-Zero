@@ -6,8 +6,7 @@ describe('bot copy', () => {
     expect(WELCOME_MESSAGE).toBe(
       'Welcome to Newsroom Zero.\n\n' +
       'I search the latest AI news, analyze trends, and turn them into actionable insights.\n\n' +
-      'What AI topics should I research? Send comma-separated topics or free text.\n' +
-      'Examples: AI Agents, AI Glasses, Claude Code, OpenAI API, AI x Blockchain, AI Travel',
+      'Choose one or more AI topics below, then tap Done.',
     );
   });
 

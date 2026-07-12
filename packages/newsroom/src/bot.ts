@@ -25,6 +25,8 @@ export const DELIVERY_MODE_VALUES: Record<DeliveryMode, 'text_only' | 'text_and_
   'Text + Audio': 'text_and_audio',
 };
 export type DeliveryModeValue = 'text_only' | 'text_and_audio';
+export const TOPIC_OPTIONS = ['AI Agents', 'AI Glasses', 'Claude Code', 'OpenAI API', 'AI x Blockchain', 'AI Travel'] as const;
+export const ANGLE_OPTIONS = ['Startup Opportunities', 'Product Strategy', 'Technical Trends', 'Investment Signals'] as const;
 
 const ChatStateSchema = z.object({
   step: z.enum(['topics', 'angles', 'range', 'delivery', 'confirm']),
@@ -32,6 +34,8 @@ const ChatStateSchema = z.object({
   analysisAngles: z.string().min(1).optional(),
   timeRange: z.enum(TIME_RANGES).optional(),
   deliveryMode: z.enum(['text_only', 'text_and_audio']).optional(),
+  selectedTopics: z.array(z.enum(TOPIC_OPTIONS)).optional(),
+  selectedAngles: z.array(z.enum(ANGLE_OPTIONS)).optional(),
 });
 export type ChatState = z.infer<typeof ChatStateSchema>;
 
@@ -148,6 +152,14 @@ export interface NewsroomBotOptions {
 const rangeKeyboard: InlineKeyboardMarkup = {
   inline_keyboard: TIME_RANGES.map((text) => [{ text, callback_data: `range:${text}` }]),
 };
+const selectionKeyboard = (kind: 'topic' | 'angle', options: readonly string[], selected: readonly string[]): InlineKeyboardMarkup => ({
+  inline_keyboard: [
+    ...options.map((text, index) => [{ text: `${selected.includes(text) ? '✅' : '⬜'} ${text}`, callback_data: `${kind}:${index}` }]),
+    [{ text: `✅ ${BOT_COPY.done}`, callback_data: `${kind}:done` }],
+  ],
+});
+const topicKeyboard = (selected: readonly string[] = []) => selectionKeyboard('topic', TOPIC_OPTIONS, selected);
+const angleKeyboard = (selected: readonly string[] = []) => selectionKeyboard('angle', ANGLE_OPTIONS, selected);
 const deliveryKeyboard: InlineKeyboardMarkup = {
   inline_keyboard: [[{ text: BOT_COPY.textOnly, callback_data: 'delivery:text_only' }, { text: BOT_COPY.textAndAudio, callback_data: 'delivery:text_and_audio' }]],
 };
@@ -176,8 +188,8 @@ export class NewsroomBot {
 
     const text = cleanText(update.message?.text);
     if (text === '/start' || text.startsWith('/start ')) {
-      await this.options.store.updateChatAndOffset(chatId, { step: 'topics' }, offset);
-      await this.options.telegram.sendMessage(chatId, WELCOME_MESSAGE);
+      await this.options.store.updateChatAndOffset(chatId, { step: 'topics', selectedTopics: [] }, offset);
+      await this.options.telegram.sendMessage(chatId, WELCOME_MESSAGE, topicKeyboard());
       return;
     }
     const chat = (await this.options.store.snapshot()).chats[chatId];
@@ -187,13 +199,9 @@ export class NewsroomBot {
       return;
     }
     if (chat.step === 'topics') {
-      if (!text || text.startsWith('/')) return this.rejectText(chatId, BOT_COPY.invalidTopics, offset);
-      await this.options.store.updateChatAndOffset(chatId, { step: 'angles', topics: text }, offset);
-      await this.options.telegram.sendMessage(chatId, BOT_COPY.askAngles);
+      return this.rejectText(chatId, BOT_COPY.invalidTopics, offset, topicKeyboard(chat.selectedTopics));
     } else if (chat.step === 'angles') {
-      if (!text || text.startsWith('/')) return this.rejectText(chatId, BOT_COPY.invalidAngles, offset);
-      await this.options.store.updateChatAndOffset(chatId, { ...chat, step: 'range', analysisAngles: text }, offset);
-      await this.options.telegram.sendMessage(chatId, BOT_COPY.askRange, rangeKeyboard);
+      return this.rejectText(chatId, BOT_COPY.invalidAngles, offset, angleKeyboard(chat.selectedAngles));
     } else if (chat.step === 'range') {
       if (!TIME_RANGES.includes(text as TimeRange)) return this.rejectText(chatId, BOT_COPY.invalidRange, offset);
       await this.options.store.updateChatAndOffset(chatId, { ...chat, step: 'delivery', timeRange: text as TimeRange }, offset);
@@ -207,9 +215,9 @@ export class NewsroomBot {
     }
   }
 
-  private async rejectText(chatId: string, message: string, offset: number): Promise<void> {
+  private async rejectText(chatId: string, message: string, offset: number, keyboard?: InlineKeyboardMarkup): Promise<void> {
     await this.options.store.setOffset(offset);
-    await this.options.telegram.sendMessage(chatId, message);
+    await this.options.telegram.sendMessage(chatId, message, keyboard);
   }
 
   private async handleCallback(chatId: string, callbackId: string, data: string | undefined, offset: number): Promise<void> {
@@ -221,6 +229,38 @@ export class NewsroomBot {
     }
     if (data === 'generate_now') this.generating.add(chatId);
     const chat = (await this.options.store.snapshot()).chats[chatId];
+    if (data?.startsWith('topic:')) {
+      if (chat?.step !== 'topics') return this.rejectText(chatId, BOT_COPY.invalidTopics, offset, topicKeyboard());
+      const selected = [...(chat.selectedTopics ?? [])];
+      if (data === 'topic:done') {
+        if (!selected.length) return this.rejectText(chatId, BOT_COPY.invalidTopics, offset, topicKeyboard(selected));
+        await this.options.store.updateChatAndOffset(chatId, { step: 'angles', topics: selected.join(', '), selectedTopics: selected, selectedAngles: [] }, offset);
+        await this.options.telegram.sendMessage(chatId, BOT_COPY.askAngles, angleKeyboard());
+      } else {
+        const option = TOPIC_OPTIONS[Number(data.slice(6))];
+        if (!option) return this.rejectText(chatId, BOT_COPY.invalidTopics, offset, topicKeyboard(selected));
+        const next = selected.includes(option) ? selected.filter((item) => item !== option) : [...selected, option];
+        await this.options.store.updateChatAndOffset(chatId, { ...chat, selectedTopics: next }, offset);
+        await this.options.telegram.sendMessage(chatId, BOT_COPY.askTopics, topicKeyboard(next));
+      }
+      return;
+    }
+    if (data?.startsWith('angle:')) {
+      if (chat?.step !== 'angles') return this.rejectText(chatId, BOT_COPY.invalidAngles, offset, angleKeyboard());
+      const selected = [...(chat.selectedAngles ?? [])];
+      if (data === 'angle:done') {
+        if (!selected.length) return this.rejectText(chatId, BOT_COPY.invalidAngles, offset, angleKeyboard(selected));
+        await this.options.store.updateChatAndOffset(chatId, { ...chat, step: 'range', analysisAngles: selected.join(', '), selectedAngles: selected }, offset);
+        await this.options.telegram.sendMessage(chatId, BOT_COPY.askRange, rangeKeyboard);
+      } else {
+        const option = ANGLE_OPTIONS[Number(data.slice(6))];
+        if (!option) return this.rejectText(chatId, BOT_COPY.invalidAngles, offset, angleKeyboard(selected));
+        const next = selected.includes(option) ? selected.filter((item) => item !== option) : [...selected, option];
+        await this.options.store.updateChatAndOffset(chatId, { ...chat, selectedAngles: next }, offset);
+        await this.options.telegram.sendMessage(chatId, BOT_COPY.askAngles, angleKeyboard(next));
+      }
+      return;
+    }
     if (data?.startsWith('range:')) {
       const range = data.slice(6);
       if (chat?.step === 'range' && TIME_RANGES.includes(range as TimeRange)) {

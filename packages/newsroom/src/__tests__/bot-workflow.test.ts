@@ -46,20 +46,24 @@ describe('topic-aware bot workflow', () => {
     const bot = new NewsroomBot({ store, telegram, generate: vi.fn() });
 
     await bot.handleUpdate({ update_id: 1, message: { chat: { id: 42 }, text: '/start' } });
-    await bot.handleUpdate({ update_id: 2, message: { chat: { id: 42 }, text: 'AI Agents, AI Travel' } });
-    await bot.handleUpdate({ update_id: 3, message: { chat: { id: 42 }, text: 'Startup Opportunities' } });
-    await bot.handleUpdate({ update_id: 4, message: { chat: { id: 42 }, text: 'Past 7 Days' } });
-    await bot.handleUpdate({ update_id: 5, message: { chat: { id: 42 }, text: 'Text + Audio' } });
+    const callback = (update_id: number, data: string) => bot.handleUpdate({ update_id, callback_query: { id: `cb-${update_id}`, data, message: { chat: { id: 42 } } } });
+    await callback(2, 'topic:0');
+    await callback(3, 'topic:5');
+    await callback(4, 'topic:done');
+    await callback(5, 'angle:0');
+    await callback(6, 'angle:done');
+    await callback(7, 'range:Past 7 Days');
+    await callback(8, 'delivery:text_and_audio');
 
     expect(telegram.sendMessage).toHaveBeenLastCalledWith('42', expect.stringContaining(
       'Topics: AI Agents, AI Travel\nAnalysis Angles: Startup Opportunities\nNews Range: Past 7 Days',
     ), expect.any(Object));
     expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({
-      offset: 6, chats: { '42': { step: 'confirm', topics: 'AI Agents, AI Travel', deliveryMode: 'text_and_audio' } },
+      offset: 9, chats: { '42': { step: 'confirm', topics: 'AI Agents, AI Travel', deliveryMode: 'text_and_audio' } },
     });
 
-    await bot.handleUpdate({ update_id: 6, message: { chat: { id: 42 }, text: '/start' } });
-    expect((await store.snapshot()).chats['42']).toEqual({ step: 'topics' });
+    await bot.handleUpdate({ update_id: 9, message: { chat: { id: 42 }, text: '/start' } });
+    expect((await store.snapshot()).chats['42']).toEqual({ step: 'topics', selectedTopics: [] });
   });
 
   it('acknowledges Generate Now immediately and prevents duplicate generation', async () => {

@@ -1,17 +1,18 @@
 export const WELCOME_MESSAGE = 'Welcome to Newsroom Zero.\n\n' +
   'I search the latest AI news, analyze trends, and turn them into actionable insights.\n\n' +
-  'What AI topics should I research? Send comma-separated topics or free text.\n' +
-  'Examples: AI Agents, AI Glasses, Claude Code, OpenAI API, AI x Blockchain, AI Travel';
+  'Choose one or more AI topics below, then tap Done.';
 
 export const BOT_COPY = Object.freeze({
   welcome: WELCOME_MESSAGE,
-  askAngles: 'Which analysis angles should I use? Send comma-separated angles or free text.\nExamples: Startup Opportunities, Product Strategy, Technical Trends, Investment Signals',
+  askTopics: 'Choose one or more AI topics, then tap Done.',
+  askAngles: 'Choose one or more analysis angles, then tap Done.',
   askRange: 'Choose a news range:',
   askDelivery: 'How would you like to receive your briefing?',
   textOnly: 'Text Only',
   textAndAudio: 'Text + Audio',
-  invalidTopics: 'Please send at least one AI topic as text.',
-  invalidAngles: 'Please send at least one analysis angle as text.',
+  invalidTopics: 'Please choose at least one AI topic from the menu.',
+  invalidAngles: 'Please choose at least one analysis angle from the menu.',
+  done: 'Done',
   invalidRange: 'Please choose Past 24 Hours, Past 3 Days, or Past 7 Days.',
   invalidDelivery: 'Please choose Text Only or Text + Audio.',
   confirmation: 'Your research brief is ready.',
