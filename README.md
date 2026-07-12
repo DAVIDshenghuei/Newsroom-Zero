@@ -126,7 +126,22 @@ Open:
 - Landing page: <http://localhost:3000>
 - Latest episode: <http://localhost:3000/episodes/latest>
 
-In a second terminal, start the long-polling Telegram Bot:
+In a second terminal, start the local Pocket TTS service (the first synthesis downloads the model):
+
+```bash
+pnpm pocket:service
+```
+
+Configure the Bot to use it:
+
+```dotenv
+POCKET_TTS_BASE_URL=http://127.0.0.1:8001
+POCKET_TTS_VOICE=alba
+POCKET_TTS_LANGUAGE=english
+POCKET_TTS_TIMEOUT_MS=180000
+```
+
+In a third terminal, start the long-polling Telegram Bot:
 
 ```bash
 pnpm newsroom:bot

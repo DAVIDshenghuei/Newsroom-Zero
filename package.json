@@ -10,7 +10,9 @@
     "newsroom:prepare": "pnpm --filter @newsroom-zero/newsroom build && node --env-file=.env packages/newsroom/dist/cli.js",
     "newsroom:voice": "pnpm --filter @newsroom-zero/newsroom build && node --env-file=.env packages/newsroom/dist/voice-cli.js",
     "newsroom:publish-telegram": "pnpm --filter @newsroom-zero/newsroom build && node --env-file=.env packages/newsroom/dist/telegram-cli.js",
-    "newsroom:bot": "pnpm --filter @newsroom-zero/newsroom build && node --env-file=.env packages/newsroom/dist/bot-cli.js"
+    "newsroom:bot": "pnpm --filter @newsroom-zero/newsroom build && node --env-file=.env packages/newsroom/dist/bot-cli.js",
+    "pocket:service": "cd services/pocket-tts-service && uv run uvicorn --app-dir src pocket_service.app:app --host 127.0.0.1 --port 8001",
+    "pocket:test": "cd services/pocket-tts-service && uv run --group dev pytest -q"
   },
   "devDependencies": {
     "next": "^14.2.35",

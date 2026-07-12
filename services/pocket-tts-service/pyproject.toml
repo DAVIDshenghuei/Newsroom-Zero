@@ -1,0 +1,29 @@
+[project]
+name = "newsroom-pocket-tts-service"
+version = "0.1.0"
+requires-python = ">=3.10,<3.15"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.34,<1",
+  "numpy>=2,<3",
+  "scipy>=1.14,<2",
+  "pocket-tts==2.1.0",
+]
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28,<1",
+  "pytest>=8,<10",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
