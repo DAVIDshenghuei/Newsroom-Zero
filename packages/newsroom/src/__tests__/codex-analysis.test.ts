@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CodexAnalysisGenerator } from '../codex-analysis.js';
+import { CodexAnalysisGenerator, createCodexSpawnSpec } from '../codex-analysis.js';
 import type { AnalysisInput, LlmAnalysis } from '../analysis.js';
 
 const analysis: LlmAnalysis = {
@@ -29,5 +29,23 @@ describe('CodexAnalysisGenerator', () => {
   it('rejects malformed or schema-invalid output', async () => {
     await expect(new CodexAnalysisGenerator({ run: async () => '{"title":' }).generate(input))
       .rejects.toThrow('Invalid Codex analysis response');
+  });
+});
+
+describe('createCodexSpawnSpec', () => {
+  it('launches an explicit JavaScript entrypoint through the current Node executable', () => {
+    expect(createCodexSpawnSpec('C:\\tools\\codex\\bin\\codex.js')).toEqual({
+      command: process.execPath,
+      args: ['C:\\tools\\codex\\bin\\codex.js'],
+    });
+  });
+
+  it('uses the Codex command from PATH when the entrypoint is blank or undefined', () => {
+    for (const entrypoint of [undefined, '', '   ']) {
+      expect(createCodexSpawnSpec(entrypoint)).toEqual({
+        command: 'codex',
+        args: [],
+      });
+    }
   });
 });

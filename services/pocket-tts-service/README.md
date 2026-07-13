@@ -1,4 +1,4 @@
-# Newsroom Zero Pocket TTS Service
+# AI Newsroom Studio Pocket TTS Service
 
 Local FastAPI wrapper around [Kyutai Pocket TTS](https://github.com/kyutai-labs/pocket-tts).
 It keeps models and voice states in memory, converts generated PCM to MP3 with ffmpeg, and exposes the contract used by the Node Bot.
@@ -23,7 +23,7 @@ The service binds only to `127.0.0.1:8001`. The first synthesis downloads Pocket
 curl http://127.0.0.1:8001/health
 curl http://127.0.0.1:8001/v1/audio/speech \
   -H "Content-Type: application/json" \
-  --data '{"text":"Hello from Newsroom Zero.","voice":"alba","language":"english","format":"mp3"}' \
+  --data '{"text":"Hello from AI Newsroom Studio.","voice":"alba","language":"english","format":"mp3"}' \
   --output pocket.mp3
 ```
 

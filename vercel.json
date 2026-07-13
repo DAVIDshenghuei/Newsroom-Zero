@@ -2,6 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm --filter @newsroom-zero/newsroom build && pnpm --filter @newsroom-zero/web build",
+  "buildCommand": "pnpm --filter @ai-newsroom-studio/newsroom build && pnpm --filter @ai-newsroom-studio/web build",
   "outputDirectory": "apps/web/.next"
 }

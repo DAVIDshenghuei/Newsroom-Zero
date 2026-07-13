@@ -1,4 +1,4 @@
-export const WELCOME_MESSAGE = 'Welcome to Newsroom Zero.\n\n' +
+export const WELCOME_MESSAGE = 'Welcome to AI Newsroom Studio.\n\n' +
   'I search the latest AI news, analyze trends, and turn them into actionable insights.\n\n' +
   'Choose an AI topic below.';
 
@@ -21,7 +21,7 @@ export const BOT_COPY = Object.freeze({
   generationFailed: 'I could not generate the briefing right now. Please try Generate Now again later.',
   noRecentStories: 'I could not find any reliably dated stories in that publication window. Please choose a broader news range and try again.',
   noPolicyStories: 'I could not find any stories matching that topic and analysis policy. Please try another selection.',
-  generationComplete: 'Your Newsroom Zero AI briefing is ready.',
+  generationComplete: 'Your AI Newsroom Studio briefing is ready.',
   audioUnavailable: 'Audio generation is unavailable right now. Your text briefing is below.',
   expired: 'This research brief is incomplete. Send /start to begin again.',
 });

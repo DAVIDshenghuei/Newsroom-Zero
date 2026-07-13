@@ -51,14 +51,14 @@ def test_speech_returns_real_mp3_and_reuses_lazy_engine() -> None:
         return engine
 
     client = TestClient(create_app(engine_factory=load))
-    payload = {"text": "Hello Newsroom Zero", "voice": "alba", "language": "english", "format": "mp3"}
+    payload = {"text": "Hello AI Newsroom Studio", "voice": "alba", "language": "english", "format": "mp3"}
     first = client.post("/v1/audio/speech", json=payload)
     second = client.post("/v1/audio/speech", json=payload)
     assert first.status_code == second.status_code == 200
     assert first.headers["content-type"].startswith("audio/mpeg")
     assert first.content[:3] == b"ID3" or first.content[:1] == b"\xff"
     assert loads == 1
-    assert engine.calls == [("Hello Newsroom Zero", "alba", "english")] * 2
+    assert engine.calls == [("Hello AI Newsroom Studio", "alba", "english")] * 2
 
 
 def test_optional_bearer_auth_rejects_missing_or_wrong_token() -> None:

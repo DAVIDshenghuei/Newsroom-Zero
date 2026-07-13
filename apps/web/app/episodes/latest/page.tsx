@@ -8,7 +8,7 @@ export default async function LatestEpisodePage() {
 
   return (
     <main className="container episode-page">
-      <Link className="back-link" href="/">← Newsroom Zero</Link>
+      <Link className="back-link" href="/">← AI Newsroom Studio</Link>
       <h1>Latest episode</h1>
       {!episode ? (
         <section className="episode-empty">

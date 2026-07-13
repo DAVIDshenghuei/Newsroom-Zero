@@ -4,10 +4,12 @@ import { BOT_COPY, WELCOME_MESSAGE } from '../bot-copy.js';
 describe('bot copy', () => {
   it('uses the exact English welcome message', () => {
     expect(WELCOME_MESSAGE).toBe(
-      'Welcome to Newsroom Zero.\n\n' +
+      'Welcome to AI Newsroom Studio.\n\n' +
       'I search the latest AI news, analyze trends, and turn them into actionable insights.\n\n' +
       'Choose an AI topic below.',
     );
+    expect(BOT_COPY.generationComplete).toBe('Your AI Newsroom Studio briefing is ready.');
+    expect(Object.values(BOT_COPY).join('\n')).not.toContain(['Newsroom', 'Zero'].join(' '));
     expect(Object.values(BOT_COPY).join('\n')).not.toMatch(/one or more|tap Done/i);
   });
 

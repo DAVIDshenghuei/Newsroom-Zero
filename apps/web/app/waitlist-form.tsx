@@ -37,8 +37,8 @@ export function WaitlistForm() {
 
   return (
     <div className="waitlist-card">
-      <h2>Join the waitlist</h2>
-      <p>Be the first to know when Newsroom Zero goes live.</p>
+      <h2>Get product updates</h2>
+      <p>Hear about new topics, delivery options, and release milestones.</p>
 
       <form onSubmit={handleSubmit}>
         <div className="form-row">

@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { EpisodeMetadataSchema, type EpisodeMetadata } from '@newsroom-zero/newsroom';
+import { EpisodeMetadataSchema, type EpisodeMetadata } from '@ai-newsroom-studio/newsroom';
 
 export async function loadLatestEpisode(
   metadataPath = resolve(process.cwd(), 'public/episodes/latest.json'),

@@ -1,5 +1,5 @@
 {
-  "name": "@newsroom-zero/newsroom",
+  "name": "@ai-newsroom-studio/newsroom",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -18,10 +18,12 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
+    "cross-spawn": "^7.0.6",
     "fast-xml-parser": "^5.3.8",
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@types/cross-spawn": "^6.0.6",
     "@types/node": "^22.0.0",
     "typescript": "^5.6.0"
   }

@@ -20,7 +20,7 @@ async function main(): Promise<void> {
   const elevenlabs = elevenlabsKey ? new ElevenLabsClient({ apiKey: elevenlabsKey }) : undefined;
   const analysisGenerator = new CodexAnalysisGenerator({
     model: process.env.CODEX_ANALYSIS_MODEL || 'gpt-5.6-sol',
-    entrypoint: process.env.CODEX_CLI_ENTRYPOINT,
+    entrypoint: process.env.CODEX_CLI_ENTRYPOINT || undefined,
     timeoutMs: Number(process.env.CODEX_ANALYSIS_TIMEOUT_MS || 300_000),
   });
 
@@ -54,7 +54,7 @@ async function main(): Promise<void> {
   let running = true;
   process.once('SIGINT', () => { running = false; });
   process.once('SIGTERM', () => { running = false; });
-  console.log('Newsroom Zero Telegram bot is polling for updates.');
+  console.log('AI Newsroom Studio Telegram bot is polling for updates.');
   while (running) {
     try {
       const { offset } = await store.snapshot();

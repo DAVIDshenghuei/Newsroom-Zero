@@ -70,7 +70,7 @@ export async function createVoiceEpisode(input: VoiceEpisodeInput): Promise<{
   const bulletin = script.segments.map(({ text }) => concise(text)).filter(Boolean).join('\n\n');
   const audio = await input.synthesizer.synthesize(input.voiceId, bulletin);
   const episode = EpisodeMetadataSchema.parse({
-    title: input.title ?? `Newsroom Zero — ${input.generatedAt.slice(0, 10)}`,
+    title: input.title ?? `AI Newsroom Studio — ${input.generatedAt.slice(0, 10)}`,
     generatedAt: input.generatedAt,
     audioUrl: '/episodes/latest.mp3',
     audioRequested: input.audioRequested ?? true,

@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Newsroom Zero',
-  description: 'Autonomous multi-agent newsroom — live feeds to Telegram.',
+  title: 'AI Newsroom Studio',
+  description: 'Self-hosted AI news podcast generator with fact-gated citations and Telegram delivery.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

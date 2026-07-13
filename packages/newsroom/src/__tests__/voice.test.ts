@@ -58,6 +58,7 @@ describe('createVoiceEpisode', () => {
       'voice', 'First headline.\n\nNext, the second story.',
     );
     expect(output.episode).toMatchObject({
+      title: 'AI Newsroom Studio — 2026-07-11',
       audioUrl: '/episodes/latest.mp3',
       stories: [{ headline: 'First headline', source: 'Wire', url: 'https://news.test/one' }],
       factGate: { approved: true },

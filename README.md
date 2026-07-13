@@ -1,209 +1,228 @@
-# Newsroom Zero
+# AI Newsroom Studio
 
-> An autonomous, fact-gated audio newsroom that turns personalized interests into cited Telegram briefings.
+> A self-hosted newsroom that researches focused AI topics, checks every citation, and delivers text or spoken briefings through Telegram.
 
-[![Tests](https://img.shields.io/badge/tests-81%20passing-22c55e)](#quality-gates)
+[![Tests](https://img.shields.io/badge/tests-161%20passing-22c55e)](#quality-gates)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6)](https://www.typescriptlang.org/)
 [![Telegram](https://img.shields.io/badge/Telegram-Open%20Bot-26A5E4)](https://t.me/Newsroomhermesbot)
+[![Codex CLI](https://img.shields.io/badge/analysis-Codex%20CLI-111827)](https://github.com/openai/codex)
 
-Built for the **Hermes Buildathon**.
+[Try the current Telegram bot](https://t.me/Newsroomhermesbot) · [Run locally](#quick-start) · [See the architecture](#architecture)
 
-[Open the Telegram Bot](https://t.me/Newsroomhermesbot) · [Jump to the demo flow](#telegram-demo-flow)
+Choose an AI beat, the angle you care about, and how far back to look. AI Newsroom Studio researches it, checks the evidence, and returns a cited AI News Podcast or text briefing. Behind that simple flow are a policy-aware AI News Aggregator, Linkup Search, structured analysis through the local Codex CLI, a blocking Fact Gate, and Text-to-Speech delivery.
 
-![Newsroom Zero landing page with Telegram onboarding instructions](docs/assets/newsroom-zero-landing.jpg)
+## Why AI Newsroom Studio?
 
-## What It Does
+General news search is noisy, and fluent summaries can hide weak evidence. This automated podcast generator narrows research before generation: each request applies a topic-based news search policy, accepts only fetched original articles inside the chosen publication window, and blocks unsupported claims before voice or publication. It is a practical way to follow AI agents news, Claude Code, OpenAI API changes, smart glasses and AI glasses, and other focused beats without treating search snippets as evidence.
 
-Newsroom Zero collects a listener's preferred topics, analysis angle, news range, and delivery mode (Text Only or Text + Audio) through an English-only Telegram conversation. It researches current stories with Linkup, validates and ranks the results, verifies original sources, applies a blocking Fact Gate, synthesizes the approved script via Pocket TTS (with ElevenLabs failover), and delivers the resulting briefing with citations back to the same Telegram chat.
+## What it does
 
-## Telegram Demo Flow
+The English-only Telegram Bot guides one listener through four single-select choices, researches the selected beat, filters and ranks original sources, asks the official Codex CLI for structured analysis, verifies claim-level citations, and returns either a text briefing or an MP3 with clickable sources.
 
-1. Open [@Newsroomhermesbot](https://t.me/Newsroomhermesbot) and press **Start**.
-2. Enter the AI topics you want to follow.
-3. Choose the analysis angles that matter to you.
-4. Select a news range: **Past 24 Hours**, **Past 3 Days**, or **Past 7 Days**.
-5. Choose delivery mode: **Text Only** or **Text + Audio**.
-6. Review your preferences and press **Generate Now**.
-7. Receive a fact-gated briefing (text or audio) with clickable sources in Telegram.
+| Capability | Current behavior |
+|---|---|
+| Guided Telegram workflow | One topic, one analysis angle, one range, and one delivery mode per briefing |
+| Policy-constrained discovery | Composes Topic + Angle JSON policies and sends native `includeDomains` / `excludeDomains` to Linkup |
+| Local source boundary | Rechecks URL hostnames locally, accepting an exact configured domain or its subdomains only |
+| Original-source relevance | Applies topic and angle terms to fetched original article content, never title/snippet matches alone |
+| Publication safety | Enforces 24-hour, 3-day, or 7-day windows and rejects unknown, future, and out-of-window dates |
+| Ranking and deduplication | Prefers tier 1 over tier 2, then uses policy matches, recency, and body quality while deduplicating |
+| Fact-gated analysis | Requires verified story IDs and exact supporting excerpts for generated factual claims |
+| Audio delivery | Uses local Pocket TTS first, with optional ElevenLabs fallback; failures degrade to cited text |
+| Fail-closed operation | Zero eligible results stop before LLM analysis, TTS, episode writes, or Telegram publication |
+| Diagnostics | Writes composed policies, rejection reports, candidates, evidence, analysis, Fact Gate, and audio outcomes to local artifacts |
 
-All Telegram Bot copy and interactions are in English.
+## Telegram flow
 
-## Pipeline
+The public bot is currently available at [@Newsroomhermesbot](https://t.me/Newsroomhermesbot); the handle retains its existing external name.
+
+1. Press **Start**.
+2. Choose one Topic: **AI Agents**, **AI Glasses**, **Claude Code**, **OpenAI API**, **AI x Blockchain**, or **AI Travel**.
+3. Choose one Angle: **Startup Opportunities**, **Product Strategy**, **Technical Trends**, or **Investment Signals**.
+4. Choose one range: **Past 24 Hours**, **Past 3 Days**, or **Past 7 Days**.
+5. Choose **Text Only** or **Text + Audio**.
+6. Review the confirmation and press **Generate Now**.
+7. Receive a fact-gated briefing with source links in the same Telegram chat.
+
+## Search policy
+
+Each request composes a validated Topic profile with a validated analysis Angle. The Topic supplies beat keywords, tiered domains, exclusions, and a suggested range; the selected Telegram range always wins. The Angle adds required, preferred, and excluded terms.
+
+### Topics and active sources
+
+Only tiers 1 and 2 participate in search and ranking. Tier 3 is deliberately inactive.
+
+| Topic | Active sources (tiers 1 + 2) |
+|---|---:|
+| AI Agents | 24 |
+| AI Glasses | 26 |
+| Claude Code | 23 |
+| OpenAI API | 20 |
+| AI x Blockchain | 24 |
+| AI Travel | 22 |
+
+Linkup receives the active domains through its native `includeDomains` field and topic exclusions through `excludeDomains`. A second, local hostname-boundary filter prevents suffix tricks and rejects results outside the composed allowlist. Relevance is evaluated only after fetching the original article: a Linkup title or snippet match cannot make an otherwise irrelevant article eligible.
+
+Publication dates also fail closed. **Past 24 Hours**, **Past 3 Days**, and **Past 7 Days** become exact UTC boundaries; missing dates, invalid dates, future dates, and dates before the boundary are rejected. Eligible stories are deduplicated and ranked with source tier as a first-class signal.
+
+If no story survives, the pipeline writes diagnostic reports and stops before Codex, Text-to-Speech, episode mutation, or Telegram publication.
+
+## Architecture
 
 ```mermaid
-flowchart LR
-    A[Telegram preferences] --> P[Compose JSON topic + analysis policy]
-    P --> B[Linkup policy-constrained research]
-    B --> C[Reject disallowed source domains]
-    C --> D[Fetch original sources]
-    D --> R[Final publication + keyword policy gate]
-    R --> Q[Policy-aware deduplication and ranking]
-    Q --> E[Anthropic structured analysis]
-    E --> F[Claim-level citations]
-    F --> G{Blocking Fact Gate}
-    G -- Approved --> H{Delivery mode}
-    H -- Text Only --> I[Telegram text delivery]
-    H -- Text + Audio --> J{Pocket TTS}
-    J -- Success --> K[Telegram audio delivery]
-    J -- Fail --> L{ElevenLabs fallback}
-    L -- Success --> K
-    L -- Fail --> I
-    K --> M[Latest web episode]
-    I --> M
-    G -- Blocked --> N[No voice or publication]
+flowchart TD
+    U[Telegram: Topic + Angle + Range + Delivery] --> P[Compose validated search policy]
+    P --> L[Linkup search<br/>includeDomains + excludeDomains]
+    L --> H[Local hostname boundary filter]
+    H --> O[Fetch original articles]
+    O --> W[Publication-window gate]
+    W --> R[Original-only relevance gate]
+    R --> Z{Eligible stories?}
+    Z -- No --> D[Write diagnostics and stop]
+    Z -- Yes --> K[Tier-aware deduplication and ranking]
+    K --> C[Codex CLI structured analysis]
+    C --> F{Claim-level Fact Gate}
+    F -- Blocked --> D
+    F -- Approved --> M{Delivery mode}
+    M -- Text Only --> T[Telegram cited text]
+    M -- Text + Audio --> V[Pocket TTS]
+    V -- Failure --> E[Optional ElevenLabs fallback]
+    E -- Failure --> T
+    V -- Success --> A[Telegram MP3 + latest episode]
+    E -- Success --> A
 ```
 
-### Safety Properties
+The standalone RSS commands remain available for compatibility, while the interactive bot uses the policy-constrained Linkup → Codex → Fact Gate → voice path.
 
-- Every factual script segment carries a story ID and canonical source URL.
-- Original article content must be fetched and verified before approval.
-- Every LLM-generated factual claim must cite one or more verified story IDs.
-- Every claim must include exact supporting excerpts that are found in the cited verified originals.
-- Anthropic system instructions are separated from user preferences and source documents, which are treated as untrusted data.
-- Unknown story IDs, malformed JSON, missing citations, and provider failures fail closed.
-- Unsupported or mismatched citations block the edition.
-- Voice generation and publication happen only after Fact Gate approval.
-- Linkup retries only transient network and `5xx` failures; invalid responses and persistent failures remain blocked.
-- API keys are read from `.env` and are never committed.
-- Topic and analysis search policy lives in validated JSON under `packages/newsroom/config/search-policies`; the selected Telegram publication window always overrides a profile's suggested range.
-- Search diagnostics record the composed policy and per-candidate rejection reasons without credentials or provider secrets.
+## Stack
 
-## Current Capabilities
+- TypeScript, Node.js 22+, pnpm workspaces, Zod, and Vitest
+- Next.js 14 for the landing page and latest episode player
+- Linkup Search over direct HTTPS for discovery and original-source fetching
+- Official OpenAI Codex CLI with subscription OAuth and `gpt-5.6-sol` for structured analysis
+- Python, FastAPI, Kyutai Pocket TTS, ffmpeg, and optional ElevenLabs fallback
+- Telegram Bot API for conversation state and delivery
+- A retained Anthropic analysis adapter with injected contract tests; it is not the current bot runtime
 
-- Interactive, per-chat Telegram onboarding and persisted workflow state
-- Text Only / Text + Audio delivery mode selection
-- Linkup search and original-source fetch
-- Topic-aware story validation, deduplication, and ranking
-- Anthropic structured summaries, cross-story trends, strategic implications, and recommendations
-- Claim-level citation and research-aware blocking Fact Gate
-- Pocket TTS primary voice generation with ElevenLabs fallback
-- Personalized Telegram MP3 delivery or text-only briefing with sources
-- Local Next.js landing page and latest episode player
-- Live RSS/Atom ingestion for the standalone newsroom pipeline
+## Quick start
 
-The interactive Bot uses grounded Anthropic analysis. The standalone RSS preparation commands retain their deterministic script path for backward compatibility.
+### Prerequisites
 
-## Local Setup
+- Node.js 22 or newer
+- pnpm 10 or newer
+- The official Codex CLI installed and authenticated with subscription OAuth (`codex login`)
+- A Telegram bot token and Linkup API key
+- Python 3.10–3.14, `uv`, and `ffmpeg` for local Pocket TTS
 
-### Requirements
-
-- Node.js `22+`
-- pnpm `10+`
-- A Telegram bot token
-- A Linkup API key
-- An Anthropic API key
-- An ElevenLabs API key (used as fallback when Pocket TTS is unavailable)
-
-### Install
+This project is designed and tested with Codex subscription OAuth: run `codex login` before starting the bot. Codex may support other authentication methods, but they are outside this project's verified setup; the application does not enforce a particular Codex authentication method at runtime. The bot launches Codex as an ephemeral, read-only subprocess, using `gpt-5.6-sol` by default.
 
 ```bash
-git clone https://github.com/DAVIDshenghuei/Newsroom-Zero.git
-cd Newsroom-Zero
+git clone https://github.com/DAVIDshenghuei/ai-newsroom-studio.git
+cd ai-newsroom-studio
 pnpm install
 cp .env.example .env
 ```
 
-Add your credentials to `.env`:
+Configure `.env` without committing secrets. Runtime variable names are:
 
 ```dotenv
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 LINKUP_API_KEY=
-ANTHROPIC_API_KEY=
-ANTHROPIC_MODEL=claude-sonnet-4-5-20250929
-ELEVENLABS_API_KEY=
+CODEX_ANALYSIS_MODEL=
+CODEX_CLI_ENTRYPOINT=
+CODEX_ANALYSIS_TIMEOUT_MS=
 POCKET_TTS_BASE_URL=
 POCKET_TTS_API_KEY=
+POCKET_TTS_SERVICE_API_KEY=
+POCKET_TTS_VOICE=
+POCKET_TTS_LANGUAGE=
+POCKET_TTS_TIMEOUT_MS=
+ELEVENLABS_API_KEY=
+ELEVENLABS_VOICE_ID=
 ```
 
-Never commit `.env` or paste production credentials into issues or screenshots.
+Normally, leave `CODEX_CLI_ENTRYPOINT` blank: the bot runs the official `codex` executable from `PATH`. Set it only when you need to launch a specific Codex JavaScript entrypoint through the current Node.js executable. Keep `CODEX_ANALYSIS_MODEL=gpt-5.6-sol` and `CODEX_ANALYSIS_TIMEOUT_MS=300000` unless you intentionally need different runtime settings.
 
-## Run the Demo Locally
+When Pocket TTS authentication is enabled, `POCKET_TTS_API_KEY` and `POCKET_TTS_SERVICE_API_KEY` must contain the same shared secret: the bot sends the former and the local service validates it against the latter.
 
-Start the landing page:
+### Run locally
+
+Start the web app:
 
 ```bash
-pnpm --filter @newsroom-zero/web dev
+pnpm --filter @ai-newsroom-studio/web dev
 ```
 
-Open:
+The landing page is at <http://localhost:3000> and the latest episode page is at <http://localhost:3000/episodes/latest>.
 
-- Landing page: <http://localhost:3000>
-- Latest episode: <http://localhost:3000/episodes/latest>
-
-In a second terminal, start the local Pocket TTS service (the first synthesis downloads the model):
+Start Pocket TTS in a second terminal:
 
 ```bash
 pnpm pocket:service
 ```
 
-Configure the Bot to use it:
-
-```dotenv
-POCKET_TTS_BASE_URL=http://127.0.0.1:8001
-POCKET_TTS_VOICE=alba
-POCKET_TTS_LANGUAGE=english
-POCKET_TTS_TIMEOUT_MS=180000
-```
-
-In a third terminal, start the long-polling Telegram Bot:
+Set `POCKET_TTS_BASE_URL=http://127.0.0.1:8001`, then start the bot in a third terminal:
 
 ```bash
 pnpm newsroom:bot
 ```
 
-Only one Bot polling process should run at a time. Multiple `getUpdates` processes for the same token cause Telegram HTTP `409` conflicts.
+Run only one long-polling process per Telegram token; concurrent `getUpdates` consumers cause Telegram `409` conflicts. Compatibility commands such as `newsroom:prepare`, `newsroom:voice`, and `newsroom:publish-telegram` intentionally keep their existing names.
 
-## Standalone Pipeline Commands
+## Add a Topic
 
-```bash
-pnpm newsroom:prepare
-pnpm newsroom:voice
-pnpm newsroom:publish-telegram
+Create the next ordered JSON file under `packages/newsroom/config/search-policies/topics/`. It must satisfy the strict Zod schema; this compact example shows the required shape:
+
+```json
+{
+  "id": "example-beat",
+  "topicLabel": "Example Beat",
+  "menuLabel": "Example Beat",
+  "sourceTiers": {
+    "tier1": [{ "name": "Primary Source", "domain": "example.com" }],
+    "tier2": [],
+    "tier3": []
+  },
+  "activeSearchTiers": ["tier1", "tier2"],
+  "excludedSources": [],
+  "includeKeywords": ["Example AI"],
+  "excludeKeywords": [],
+  "suggestedTimeRange": "24h"
+}
 ```
 
-The interactive `pnpm newsroom:bot` command runs the personalized research, verification, voice, and delivery path after the user presses **Generate Now**.
+Then add the menu label to the bot's topic choices and update the search-policy contract fixture. Domains must be valid DNS hostnames and unique across tiers and exclusions.
 
-## Quality Gates
+## Quality gates
+
+The verified TypeScript baseline is **161 tests passing**. Pocket TTS has a separate **5-test** Python suite.
 
 ```bash
 pnpm test
 pnpm typecheck
 pnpm build
+pnpm pocket:test
 ```
 
-Current verified baseline:
+The TypeScript suite covers schemas, policy composition, native Linkup domain options, hostname boundaries, original-only relevance, publication windows, tier-aware ranking and deduplication, zero-result early exits, Codex analysis, Fact Gate behavior, TTS fallback, Telegram delivery, and web repositories. The Python suite exercises Pocket TTS HTTP validation, authentication, lazy engine reuse, safe errors, and MP3 conversion.
 
-- **81 tests passing**
-- TypeScript typecheck passing
-- Next.js production build passing
-- Real Linkup → Fact Gate → ElevenLabs → Telegram deterministic flow exercised successfully
-- Anthropic integration is covered by injected HTTP contract tests; a valid `ANTHROPIC_API_KEY` is required for live LLM verification
-
-## Repository Layout
+## Repository layout
 
 ```text
-apps/web/                  Next.js landing page and episode player
-packages/newsroom/src/     Research, ranking, Fact Gate, voice, and Telegram workflow
-apps/web/public/episodes/  Latest generated episode metadata and MP3
-docs/assets/               README and demo images
-artifacts/                 Local generated workflow artifacts (gitignored)
+apps/web/                                      Next.js landing page and latest episode player
+packages/newsroom/config/search-policies/     Topic and analysis policy JSON
+packages/newsroom/src/                        Search, ranking, analysis, Fact Gate, voice, and bot
+services/pocket-tts-service/                  Local FastAPI Pocket TTS service
+config/feeds.json                              Standalone RSS/Atom feed configuration
+artifacts/                                     Local diagnostic artifacts (gitignored)
+apps/web/public/episodes/                      Generated latest episode metadata and audio
 ```
-
-## Tech Stack
-
-- TypeScript
-- Node.js
-- pnpm workspaces
-- Next.js 14
-- Zod
-- Vitest
-- Linkup API
-- Anthropic Messages API
-- Pocket TTS
-- ElevenLabs API
-- Telegram Bot API
 
 ## Security
 
-Secrets belong only in `.env`. The repository ignores runtime credentials and local generated artifacts. If a credential is ever exposed in chat, logs, or screenshots, rotate it before production use.
+- Keep credentials only in the gitignored `.env`; never commit keys, tokens, generated private briefings, or Codex authentication state.
+- Codex analysis runs ephemerally with a read-only sandbox and receives fetched news as untrusted input.
+- Search and analysis failures fail closed, and generated factual claims cannot pass without verified original-source excerpts.
+- Diagnostic artifacts contain research content and should be treated as local data even though secrets are excluded.
+- Rotate any credential exposed in logs, screenshots, chat, or issue reports.

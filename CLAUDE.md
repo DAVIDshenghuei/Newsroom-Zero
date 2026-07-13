@@ -1,52 +1,63 @@
-# Newsroom Zero — CLAUDE.md
+# AI Newsroom Studio — CLAUDE.md
 
 ## Architecture
 
-```
-apps/
-  web/          # Next.js App Router + TypeScript — landing page, waitlist form
-packages/
-  newsroom/     # Framework-neutral Zod domain schemas & state types
+```text
+apps/web/                                      Next.js landing page and latest episode player
+packages/newsroom/config/search-policies/     Topic and analysis policy JSON
+packages/newsroom/src/                        Search, ranking, Codex analysis, Fact Gate, voice, and Telegram bot
+services/pocket-tts-service/                  Local FastAPI Pocket TTS service
 ```
 
-Pipeline: Live Feeds → Editor → Writer → Fact Judge → Voice → Telegram
+Interactive pipeline:
+
+```text
+Telegram selection
+→ Topic + Analysis policy composition
+→ Linkup domain-constrained search
+→ original article fetch
+→ publication and relevance gates
+→ tier-aware ranking and deduplication
+→ Codex analysis
+→ claim-level Fact Gate
+→ text or Pocket TTS/ElevenLabs delivery
+```
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `pnpm install` | Install all workspace dependencies |
-| `pnpm lint` | TypeScript type-check across all packages (`pnpm -r run lint`) |
-| `pnpm typecheck` | Alias for lint (also `pnpm -r run typecheck`) |
-| `pnpm test` | Run Vitest once |
-| `pnpm build` | Build all packages (`pnpm -r run build`) |
-| `pnpm dev` | Start web dev server from root (requires `cd apps/web && pnpm dev`) |
-| `pnpm --filter @newsroom-zero/newsroom build` | Build only the newsroom package |
-| `pnpm --filter @newsroom-zero/web dev` | Dev the web app only |
+| `pnpm install` | Install workspace dependencies |
+| `pnpm test` | Run the TypeScript/Vitest suite |
+| `pnpm pocket:test` | Run the Pocket TTS Python tests |
+| `pnpm typecheck` | Build the newsroom package and type-check all workspaces |
+| `pnpm build` | Build all packages and the Next.js production app |
+| `pnpm --filter @ai-newsroom-studio/web dev` | Start the web app locally |
+| `pnpm newsroom:bot` | Build and run the Telegram long-polling bot |
+| `pnpm pocket:service` | Start the local Pocket TTS service |
 
-## Design constraints
+## Runtime invariants
 
-- **Fresh-build constraint**: This repository started from a single initial commit
-  (`chore: initialize fresh buildathon repository`). Every file in this repo was
-  created for this buildathon. Do not copy code from existing projects — no
-  portal, no dashboard, no existing agent code.
-- **No external SDKs yet**: Do not add Convex, Linkup, ElevenLabs, Telegram
-  Bot, or Cloudflare SDKs until explicitly permitted. Phase 1 is pure scaffold.
-- **Preservation rule**: Do not modify files outside this repository. Do not
-  commit secrets or real API keys. Only `.env` files (already gitignored) may
-  hold secrets.
+- The Telegram UI and bot copy remain English-only.
+- Topic and Analysis policies come from validated JSON under `packages/newsroom/config/search-policies/`.
+- Tier 1 and Tier 2 domains are active; Tier 3 remains discovery-only.
+- Linkup uses native domain restrictions, followed by a local hostname-boundary check.
+- Final relevance decisions use fetched original content, never provider titles or snippets alone.
+- Publication windows reject missing, invalid, future, and out-of-window dates.
+- Zero eligible stories stop before Codex, TTS, publication, or episode writes.
+- The current bot analysis runtime is the official Codex CLI with `gpt-5.6-sol` by default.
+- Keep only one Telegram long-polling process active per bot token.
+- Do not commit secrets, generated diagnostics, or Codex authentication state.
+- Treat `apps/web/public/episodes/latest.json` and `latest.mp3` as protected runtime artifacts; never stage, restore, or overwrite them unless explicitly requested.
 
 ## Dependency graph
 
-```
-@newsroom-zero/web  ──depends-on──>  @newsroom-zero/newsroom
+```text
+@ai-newsroom-studio/web  ──depends-on──>  @ai-newsroom-studio/newsroom
 ```
 
-The `newsroom` package has zero framework dependencies — just Zod + TypeScript.
-The `web` app depends on `newsroom` for type contracts.
+The framework-neutral `newsroom` package owns schemas, policy composition, search and fetch clients, ranking, analysis adapters, the Fact Gate, voice delivery, and Telegram workflow code. It depends on Zod, `fast-xml-parser`, and `cross-spawn`. The Next.js web app consumes its shared contracts.
 
 ## Waitlist repository contract
 
-The waitlist form uses an injectable `WaitlistRepository` interface. Swap the
-default in-memory implementation by calling `setWaitlistRepository(...)` with a
-custom adapter (e.g. `DatabaseWaitlistRepository`) at app startup.
+The waitlist form uses an injectable `WaitlistRepository` interface. Replace the default in-memory implementation by calling `setWaitlistRepository(...)` with a persistent adapter at app startup.

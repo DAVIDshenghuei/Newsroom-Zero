@@ -7,7 +7,7 @@ const root = fileURLToPath(new URL('.', import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
-      '@newsroom-zero/newsroom': resolve(root, 'packages/newsroom/src/index.ts'),
+      '@ai-newsroom-studio/newsroom': resolve(root, 'packages/newsroom/src/index.ts'),
     },
   },
   test: {

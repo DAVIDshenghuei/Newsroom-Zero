@@ -84,7 +84,7 @@ def create_app(
     max_text_chars: int = 20_000,
     ffmpeg_binary: str = "ffmpeg",
 ) -> FastAPI:
-    app = FastAPI(title="Newsroom Zero Pocket TTS", version="0.1.0")
+    app = FastAPI(title="AI Newsroom Studio Pocket TTS", version="0.1.0")
     configured_key = api_key if api_key is not None else os.getenv("POCKET_TTS_SERVICE_API_KEY")
     engine: SpeechEngine | None = None
     load_lock = threading.Lock()

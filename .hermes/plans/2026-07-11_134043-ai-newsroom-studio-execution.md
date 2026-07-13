@@ -1,8 +1,8 @@
-# Newsroom Zero — Executable Build Plan from Current State
+# AI Newsroom Studio — Executable Build Plan from Current State
 
 > **For Hermes:** Execute every coding task through `claude-codex -C C:/Users/User/Newsroom-Zero`, which is pinned to the official Codex CLI model `gpt-5.6-sol`. Do not use Claude Code, DeepSeek, delegated coding agents, or direct ad-hoc edits unless the user explicitly changes this workflow. Preserve all existing files and use TDD plus frequent commits.
 
-**Goal:** Continue the existing fresh-build Newsroom Zero repository from its current Phase 1 scaffold to a reliable autonomous pipeline that ingests live RSS, selects stories, fact-gates a citation-bearing script, generates ElevenLabs audio, publishes to a public episode page and Telegram, and runs unattended through Hermes cron.
+**Goal:** Continue the existing fresh-build AI Newsroom Studio repository from its current Phase 1 scaffold to a reliable autonomous pipeline that ingests live RSS, selects stories, fact-gates a citation-bearing script, generates ElevenLabs audio, publishes to a public episode page and Telegram, and runs unattended through Hermes cron.
 
 **Architecture:** Preserve the current pnpm monorepo and framework-neutral `packages/newsroom` contracts. Build one vertical slice at a time: first repair and commit the current scaffold, then prove live RSS-to-audio in the terminal, then split that working loop into structured newsroom agents, add a blocking fact gate, persist runs, publish externally, and finally schedule unattended editions. External services are always behind typed adapters so unit tests use fakes and no secret enters Git.
 
@@ -282,7 +282,7 @@ Use Zod for untrusted config parsing.
 **Dependencies:**
 
 ```bash
-pnpm --filter @newsroom-zero/newsroom add fast-xml-parser
+pnpm --filter @ai-newsroom-studio/newsroom add fast-xml-parser
 ```
 
 **Files:**
@@ -322,7 +322,7 @@ Required behavior:
 - HTTP 200 only.
 - Maximum response size 2 MB.
 - RSS/XML content-type preferred but tolerate known feed servers.
-- User-agent identifies Newsroom Zero.
+- User-agent identifies AI Newsroom Studio.
 - Retry once for 429/5xx with bounded delay.
 - Never accept local/private network URLs in production config.
 
@@ -766,13 +766,13 @@ Execute in exactly this order:
 The first coding prompt should be exactly:
 
 ```text
-You are working in the fresh-build Newsroom Zero repository. Preserve all existing work. Fix only the Next.js 14 build error by replacing apps/web/next.config.ts with an equivalent supported apps/web/next.config.mjs. Preserve output: 'standalone'. Run pnpm test, pnpm typecheck, and pnpm build. Do not change any other behavior. Show the exact diff and command results.
+You are working in the fresh-build AI Newsroom Studio repository. Preserve all existing work. Fix only the Next.js 14 build error by replacing apps/web/next.config.ts with an equivalent supported apps/web/next.config.mjs. Preserve output: 'standalone'. Run pnpm test, pnpm typecheck, and pnpm build. Do not change any other behavior. Show the exact diff and command results.
 ```
 
 Run it with:
 
 ```bash
-claude-codex -C C:/Users/User/Newsroom-Zero "You are working in the fresh-build Newsroom Zero repository. Preserve all existing work. Fix only the Next.js 14 build error by replacing apps/web/next.config.ts with an equivalent supported apps/web/next.config.mjs. Preserve output: 'standalone'. Run pnpm test, pnpm typecheck, and pnpm build. Do not change any other behavior. Show the exact diff and command results."
+claude-codex -C C:/Users/User/Newsroom-Zero "You are working in the fresh-build AI Newsroom Studio repository. Preserve all existing work. Fix only the Next.js 14 build error by replacing apps/web/next.config.ts with an equivalent supported apps/web/next.config.mjs. Preserve output: 'standalone'. Run pnpm test, pnpm typecheck, and pnpm build. Do not change any other behavior. Show the exact diff and command results."
 ```
 
 ---

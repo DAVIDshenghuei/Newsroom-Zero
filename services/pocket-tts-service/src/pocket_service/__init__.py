@@ -1,1 +1,1 @@
-"""Local Pocket TTS HTTP service for Newsroom Zero."""
+"""Local Pocket TTS HTTP service for AI Newsroom Studio."""
