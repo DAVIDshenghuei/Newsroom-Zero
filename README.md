@@ -2,7 +2,7 @@
 
 > A self-hosted newsroom that researches focused AI topics, checks every citation, and delivers text or spoken briefings through Telegram.
 
-[![Tests](https://img.shields.io/badge/tests-161%20passing-22c55e)](#quality-gates)
+[![Tests](https://img.shields.io/badge/tests-171%20passing-22c55e)](#quality-gates)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6)](https://www.typescriptlang.org/)
 [![Telegram](https://img.shields.io/badge/Telegram-Open%20Bot-26A5E4)](https://t.me/Newsroomhermesbot)
 [![Codex CLI](https://img.shields.io/badge/analysis-Codex%20CLI-111827)](https://github.com/openai/codex)
@@ -17,11 +17,12 @@ General news search is noisy, and fluent summaries can hide weak evidence. This 
 
 ## What it does
 
-The English-only Telegram Bot guides one listener through four single-select choices, researches the selected beat, filters and ranks original sources, asks the official Codex CLI for structured analysis, verifies claim-level citations, and returns either a text briefing or an MP3 with clickable sources.
+The English-only Telegram UI guides one listener through five single-select choices, researches the selected beat, filters and ranks original sources, asks the official Codex CLI for structured analysis in the selected output language, verifies claim-level citations, and returns either a text briefing or an MP3 with clickable sources.
 
 | Capability | Current behavior |
 |---|---|
-| Guided Telegram workflow | One topic, one analysis angle, one range, and one delivery mode per briefing |
+| Guided Telegram workflow | One topic, one analysis angle, one range, one output language, and one delivery mode per briefing |
+| Multilingual briefings | Generates prose in English, French, German, Spanish, Italian, or Portuguese while preserving supporting quotes verbatim |
 | Policy-constrained discovery | Composes Topic + Angle JSON policies and sends native `includeDomains` / `excludeDomains` to Linkup |
 | Local source boundary | Rechecks URL hostnames locally, accepting an exact configured domain or its subdomains only |
 | Original-source relevance | Applies topic and angle terms to fetched original article content, never title/snippet matches alone |
@@ -40,9 +41,23 @@ The public bot is currently available at [@Newsroomhermesbot](https://t.me/Newsr
 2. Choose one Topic: **AI Agents**, **AI Glasses**, **Claude Code**, **OpenAI API**, **AI x Blockchain**, or **AI Travel**.
 3. Choose one Angle: **Startup Opportunities**, **Product Strategy**, **Technical Trends**, or **Investment Signals**.
 4. Choose one range: **Past 24 Hours**, **Past 3 Days**, or **Past 7 Days**.
-5. Choose **Text Only** or **Text + Audio**.
-6. Review the confirmation and press **Generate Now**.
-7. Receive a fact-gated briefing with source links in the same Telegram chat.
+5. Choose an output language: **English**, **French**, **German**, **Spanish**, **Italian**, or **Portuguese**.
+6. Choose **Text Only** or **Text + Audio**.
+7. Review the confirmation and press **Generate Now**.
+8. Receive a fact-gated briefing with source links in the same Telegram chat.
+
+The output choice affects generated prose and per-call TTS settings only. It does not change discovery domains, publication windows, or relevance rules, and supporting quotes remain exact excerpts in the source language.
+
+| Output | Pocket language/model | Primary voice |
+|---|---|---|
+| English | `english` | `alba` |
+| French | `french_24l` preview | `estelle` |
+| German | `german_24l` preview | `juergen` |
+| Spanish | `spanish_24l` preview | `lola` |
+| Italian | `italian` | `giovanni` |
+| Portuguese | `portuguese` | `rafael` |
+
+Chinese is not currently available through Pocket TTS and is not offered in the menu. ElevenLabs with `eleven_multilingual_v2` remains the configured fallback, not an additional menu capability.
 
 ## Search policy
 
@@ -71,7 +86,7 @@ If no story survives, the pipeline writes diagnostic reports and stops before Co
 
 ```mermaid
 flowchart TD
-    U[Telegram: Topic + Angle + Range + Delivery] --> P[Compose validated search policy]
+    U[Telegram: Topic + Angle + Range + Language + Delivery] --> P[Compose validated search policy]
     P --> L[Linkup search<br/>includeDomains + excludeDomains]
     L --> H[Local hostname boundary filter]
     H --> O[Fetch original articles]
@@ -80,7 +95,7 @@ flowchart TD
     R --> Z{Eligible stories?}
     Z -- No --> D[Write diagnostics and stop]
     Z -- Yes --> K[Tier-aware deduplication and ranking]
-    K --> C[Codex CLI structured analysis]
+    K --> C[Codex CLI structured analysis<br/>selected prose language]
     C --> F{Claim-level Fact Gate}
     F -- Blocked --> D
     F -- Approved --> M{Delivery mode}
@@ -196,7 +211,7 @@ Then add the menu label to the bot's topic choices and update the search-policy 
 
 ## Quality gates
 
-The verified TypeScript baseline is **161 tests passing**. Pocket TTS has a separate **5-test** Python suite.
+The verified TypeScript baseline is **171 tests passing**. Pocket TTS has a separate **6-test** Python suite.
 
 ```bash
 pnpm test

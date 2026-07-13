@@ -19,6 +19,21 @@ pnpm pocket:service
 
 The service binds only to `127.0.0.1:8001`. The first synthesis downloads Pocket TTS model and voice assets; subsequent requests reuse cached model and voice state.
 
+## Supported languages
+
+The request validator accepts only these official model IDs:
+
+| Language | `language` | Default newsroom voice | Pocket model status |
+|---|---|---|---|
+| English | `english` | `alba` | Standard |
+| French | `french_24l` | `estelle` | Preview 24l |
+| German | `german_24l` | `juergen` | Preview 24l |
+| Spanish | `spanish_24l` | `lola` | Preview 24l |
+| Italian | `italian` | `giovanni` | Standard |
+| Portuguese | `portuguese` | `rafael` | Standard |
+
+Unsupported IDs return HTTP 422 before the engine loads. Chinese is not currently supported by Pocket TTS. The Node application can fall back to ElevenLabs, but it does not expose languages unsupported by the primary Pocket menu contract.
+
 ```bash
 curl http://127.0.0.1:8001/health
 curl http://127.0.0.1:8001/v1/audio/speech \

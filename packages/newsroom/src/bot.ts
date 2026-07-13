@@ -18,6 +18,7 @@ import type { InlineKeyboardMarkup, TelegramClient, TelegramUpdate } from './tel
 import { concise, DEFAULT_ELEVENLABS_VOICE_ID, EpisodeMetadataSchema, type VoiceSynthesizer } from './voice.js';
 import type { SynthesizeOutcomeFunction, VoiceSynthesisOutcome } from './pocket-tts.js';
 import { buildSearchQuery, composeSearchPolicy, filterBySearchPolicy, filterBySourceDomain } from './search-policy.js';
+import { getOutputLanguage, OUTPUT_LANGUAGES, OUTPUT_LANGUAGE_VALUES, type OutputLanguage } from './languages.js';
 
 export const TIME_RANGES = ['Past 24 Hours', 'Past 3 Days', 'Past 7 Days'] as const;
 export type TimeRange = typeof TIME_RANGES[number];
@@ -38,11 +39,12 @@ export const TOPIC_OPTIONS = ['AI Agents', 'AI Glasses', 'Claude Code', 'OpenAI 
 export const ANGLE_OPTIONS = ['Startup Opportunities', 'Product Strategy', 'Technical Trends', 'Investment Signals'] as const;
 
 const ChatStateSchema = z.object({
-  step: z.enum(['topics', 'angles', 'range', 'delivery', 'confirm']),
+  step: z.enum(['topics', 'angles', 'range', 'language', 'delivery', 'confirm']),
   topics: z.string().min(1).optional(),
   analysisAngles: z.string().min(1).optional(),
   timeRange: z.enum(TIME_RANGES).optional(),
   deliveryMode: z.enum(['text_only', 'text_and_audio']).optional(),
+  outputLanguage: z.enum(OUTPUT_LANGUAGE_VALUES).optional(),
   selectedTopics: z.array(z.enum(TOPIC_OPTIONS)).optional(),
   selectedAngles: z.array(z.enum(ANGLE_OPTIONS)).optional(),
 });
@@ -62,7 +64,11 @@ export class BotStateStore {
 
   private async read(): Promise<PersistedState> {
     try {
-      return StateSchema.parse(JSON.parse(await readFile(this.path, 'utf8')));
+      const state = StateSchema.parse(JSON.parse(await readFile(this.path, 'utf8')));
+      for (const chat of Object.values(state.chats)) {
+        if ((chat.step === 'delivery' || chat.step === 'confirm') && !chat.outputLanguage) chat.outputLanguage = 'english';
+      }
+      return state;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { offset: 0, chats: {} };
       throw error;
@@ -113,10 +119,11 @@ export interface ResearchPreferences {
   analysisAngles: string;
   timeRange: TimeRange;
   deliveryMode: DeliveryModeValue;
+  outputLanguage: OutputLanguage;
 }
 
 export function createResearchQuery(preferences: ResearchPreferences): string {
-  return `Latest AI news about ${preferences.topics}. Focus analysis on ${preferences.analysisAngles}. Time range: ${preferences.timeRange}. Return concrete, source-backed developments in English only.`;
+  return `Latest AI news about ${preferences.topics}. Focus analysis on ${preferences.analysisAngles}. Time range: ${preferences.timeRange}. Output language: ${getOutputLanguage(preferences.outputLanguage).label}. Return concrete, source-backed developments.`;
 }
 
 export function splitTelegramText(text: string, limit = 4_000): string[] {
@@ -169,6 +176,9 @@ const angleKeyboard = () => selectionKeyboard('angle', ANGLE_OPTIONS);
 const deliveryKeyboard: InlineKeyboardMarkup = {
   inline_keyboard: [[{ text: BOT_COPY.textOnly, callback_data: 'delivery:text_only' }, { text: BOT_COPY.textAndAudio, callback_data: 'delivery:text_and_audio' }]],
 };
+const languageKeyboard: InlineKeyboardMarkup = {
+  inline_keyboard: OUTPUT_LANGUAGES.map(({ label, value }) => [{ text: label, callback_data: `language:${value}` }]),
+};
 const generateKeyboard: InlineKeyboardMarkup = {
   inline_keyboard: [[{ text: BOT_COPY.generateNow, callback_data: 'generate_now' }]],
 };
@@ -210,8 +220,10 @@ export class NewsroomBot {
       return this.rejectText(chatId, BOT_COPY.invalidAngles, offset, angleKeyboard());
     } else if (chat.step === 'range') {
       if (!TIME_RANGES.includes(text as TimeRange)) return this.rejectText(chatId, BOT_COPY.invalidRange, offset);
-      await this.options.store.updateChatAndOffset(chatId, { ...chat, step: 'delivery', timeRange: text as TimeRange }, offset);
-      await this.options.telegram.sendMessage(chatId, BOT_COPY.askDelivery, deliveryKeyboard);
+      await this.options.store.updateChatAndOffset(chatId, { ...chat, step: 'language', timeRange: text as TimeRange }, offset);
+      await this.options.telegram.sendMessage(chatId, BOT_COPY.askLanguage, languageKeyboard);
+    } else if (chat.step === 'language') {
+      return this.rejectText(chatId, BOT_COPY.invalidLanguage, offset, languageKeyboard);
     } else if (chat.step === 'delivery') {
       if (!DELIVERY_MODES.includes(text as DeliveryMode)) return this.rejectText(chatId, BOT_COPY.invalidDelivery, offset);
       await this.confirm(chatId, { ...chat, step: 'confirm', deliveryMode: DELIVERY_MODE_VALUES[text as DeliveryMode] }, offset);
@@ -256,11 +268,22 @@ export class NewsroomBot {
     if (data?.startsWith('range:')) {
       const range = data.slice(6);
       if (chat?.step === 'range' && TIME_RANGES.includes(range as TimeRange)) {
-        await this.options.store.updateChatAndOffset(chatId, { ...chat, step: 'delivery', timeRange: range as TimeRange }, offset);
-        await this.options.telegram.sendMessage(chatId, BOT_COPY.askDelivery, deliveryKeyboard);
+        await this.options.store.updateChatAndOffset(chatId, { ...chat, step: 'language', timeRange: range as TimeRange }, offset);
+        await this.options.telegram.sendMessage(chatId, BOT_COPY.askLanguage, languageKeyboard);
       } else {
         await this.options.store.setOffset(offset);
         await this.options.telegram.sendMessage(chatId, BOT_COPY.invalidRange);
+      }
+      return;
+    }
+    if (data?.startsWith('language:')) {
+      const value = data.slice(9) as OutputLanguage;
+      if (chat?.step === 'language' && OUTPUT_LANGUAGES.some((item) => item.value === value)) {
+        await this.options.store.updateChatAndOffset(chatId, { ...chat, step: 'delivery', outputLanguage: value }, offset);
+        await this.options.telegram.sendMessage(chatId, BOT_COPY.askDelivery, deliveryKeyboard);
+      } else {
+        await this.options.store.setOffset(offset);
+        await this.options.telegram.sendMessage(chatId, BOT_COPY.invalidLanguage, languageKeyboard);
       }
       return;
     }
@@ -281,7 +304,7 @@ export class NewsroomBot {
       effectiveChat = { ...chat, deliveryMode: 'text_and_audio' };
       await this.options.store.setChat(chatId, effectiveChat);
     }
-    if (!effectiveChat || effectiveChat.step !== 'confirm' || !effectiveChat.topics || !effectiveChat.analysisAngles || !effectiveChat.timeRange || !effectiveChat.deliveryMode) {
+    if (!effectiveChat || effectiveChat.step !== 'confirm' || !effectiveChat.topics || !effectiveChat.analysisAngles || !effectiveChat.timeRange || !effectiveChat.deliveryMode || !effectiveChat.outputLanguage) {
       this.generating.delete(chatId);
       await this.options.telegram.sendMessage(chatId, BOT_COPY.expired);
       return;
@@ -310,7 +333,7 @@ export class NewsroomBot {
 
   private confirmation(chat: Required<ChatState>): string {
     const deliveryLabel = chat.deliveryMode === 'text_and_audio' ? 'Text + Audio' : 'Text Only';
-    return `${BOT_COPY.confirmation}\n\nTopics: ${chat.topics}\nAnalysis Angles: ${chat.analysisAngles}\nNews Range: ${chat.timeRange}\nDelivery: ${deliveryLabel}`;
+    return `${BOT_COPY.confirmation}\n\nTopics: ${chat.topics}\nAnalysis Angles: ${chat.analysisAngles}\nNews Range: ${chat.timeRange}\nOutput Language: ${getOutputLanguage(chat.outputLanguage).label}\nDelivery: ${deliveryLabel}`;
   }
 }
 
@@ -407,7 +430,8 @@ export function createBriefingGenerator(options: GeneratorOptions) {
     if (script.status !== 'ready_for_voice') throw new Error('Voice generation refused: script must be ready_for_voice and Fact Gate must be approved');
 
     const bulletin = script.segments.map(({ text }) => concise(text)).filter(Boolean).join('\n\n');
-    const title = `${analysis.title} — ${preferences.analysisAngles}`;
+    const language = getOutputLanguage(preferences.outputLanguage);
+    const title = analysis.title;
     const storyMetadata = stories.map(({ headline, source, canonicalUrl }) => ({
       headline, source, url: canonicalUrl,
     }));
@@ -416,11 +440,15 @@ export function createBriefingGenerator(options: GeneratorOptions) {
     if (preferences.deliveryMode === 'text_and_audio') {
       const withOutcome = options.synthesizer as (VoiceSynthesizer & Partial<SynthesizeOutcomeFunction>);
       if (withOutcome.synthesizeWithOutcome) {
-        try { outcome = await withOutcome.synthesizeWithOutcome(bulletin); }
+        try { outcome = await withOutcome.synthesizeWithOutcome(bulletin, { language: language.pocketLanguage, voiceId: language.pocketVoice }); }
         catch { /* both TTS providers failed — fall through to text-only publication */ }
       } else {
         try {
-          const audio = await options.synthesizer.synthesize(options.voiceId ?? DEFAULT_ELEVENLABS_VOICE_ID, bulletin);
+          const audio = await options.synthesizer.synthesize(
+            options.voiceId ?? DEFAULT_ELEVENLABS_VOICE_ID,
+            bulletin,
+            { language: language.pocketLanguage },
+          );
           outcome = { audio, provider: 'elevenlabs', fallbackUsed: false };
         } catch { /* TTS failed — fall through to text-only publication */ }
       }
@@ -431,6 +459,7 @@ export function createBriefingGenerator(options: GeneratorOptions) {
       audioUrl: outcome ? '/episodes/latest.mp3' : undefined,
       audioRequested: preferences.deliveryMode === 'text_and_audio', audioGenerated: !!outcome,
       provider: outcome?.provider, fallbackUsed: outcome?.fallbackUsed,
+      outputLanguage: preferences.outputLanguage,
       stories: storyMetadata, factGate,
     });
     const updatedEdition = outcome
@@ -444,6 +473,7 @@ export function createBriefingGenerator(options: GeneratorOptions) {
       audioGenerated: !!outcome,
       provider: outcome?.provider ?? null,
       fallbackUsed: outcome?.fallbackUsed ?? false,
+      outputLanguage: preferences.outputLanguage,
     };
     const writes: Promise<void>[] = [
       writeFile(resolve(episodesDirectory, 'latest.json'), `${JSON.stringify(episode, null, 2)}\n`, 'utf8'),

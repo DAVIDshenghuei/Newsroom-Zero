@@ -7,7 +7,7 @@ import threading
 import wave
 from collections.abc import Callable
 from hmac import compare_digest
-from typing import Protocol
+from typing import Literal, Protocol
 
 import numpy as np
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -55,7 +55,7 @@ class SpeechRequest(BaseModel):
 
     text: str = Field(min_length=1)
     voice: str = Field(default="alba", min_length=1, max_length=200)
-    language: str = Field(default="english", pattern=r"^[a-z][a-z0-9_]*$")
+    language: Literal["english", "french_24l", "german_24l", "spanish_24l", "italian", "portuguese"] = "english"
     format: str = Field(default="mp3", pattern=r"^mp3$")
 
 

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -31,6 +31,7 @@ describe('topic-aware bot workflow', () => {
     const query = createResearchQuery({
       topics: 'AI Agents, Claude Code', analysisAngles: 'Product Strategy', timeRange: 'Past 3 Days',
       deliveryMode: 'text_and_audio',
+      outputLanguage: 'french',
     });
     expect(query).toContain('AI Agents, Claude Code');
     expect(query).toContain('Product Strategy');
@@ -74,17 +75,37 @@ describe('topic-aware bot workflow', () => {
     expect(telegram.sendMessage).toHaveBeenCalledTimes(3);
     expect(telegram.sendMessage).toHaveBeenLastCalledWith('42', 'Choose a news range:', expect.any(Object));
     await callback(4, 'range:Past 7 Days');
-    await callback(5, 'delivery:text_and_audio');
+    expect(telegram.sendMessage).toHaveBeenLastCalledWith('42', 'Choose an output language:', expect.any(Object));
+    const languageMarkup = telegram.sendMessage.mock.calls[3]?.[2];
+    expect(languageMarkup.inline_keyboard.flat().map((button: { text: string }) => button.text)).toEqual([
+      'English', 'French', 'German', 'Spanish', 'Italian', 'Portuguese',
+    ]);
+    await callback(5, 'language:french');
+    expect(telegram.sendMessage).toHaveBeenLastCalledWith('42', 'How would you like to receive your briefing?', expect.any(Object));
+    await callback(6, 'delivery:text_and_audio');
 
     expect(telegram.sendMessage).toHaveBeenLastCalledWith('42', expect.stringContaining(
       'Topics: AI Agents\nAnalysis Angles: Product Strategy\nNews Range: Past 7 Days',
     ), expect.any(Object));
+    expect(telegram.sendMessage.mock.calls.at(-1)?.[1]).toContain('Output Language: French');
     expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({
-      offset: 6, chats: { '42': { step: 'confirm', topics: 'AI Agents', analysisAngles: 'Product Strategy', deliveryMode: 'text_and_audio' } },
+      offset: 7, chats: { '42': { step: 'confirm', topics: 'AI Agents', analysisAngles: 'Product Strategy', outputLanguage: 'french', deliveryMode: 'text_and_audio' } },
     });
 
     await bot.handleUpdate({ update_id: 6, message: { chat: { id: 42 }, text: '/start' } });
     expect((await store.snapshot()).chats['42']).toEqual({ step: 'topics' });
+  });
+
+  it('migrates stale confirm and delivery sessions to English safely', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'newsroom-bot-'));
+    const path = join(directory, 'state.json');
+    await writeFile(path, JSON.stringify({ offset: 1, chats: {
+      confirm: { step: 'confirm', topics: 'AI Agents', analysisAngles: 'Technical Trends', timeRange: 'Past 24 Hours', deliveryMode: 'text_only' },
+      delivery: { step: 'delivery', topics: 'AI Agents', analysisAngles: 'Technical Trends', timeRange: 'Past 24 Hours' },
+    } }));
+    const store = new BotStateStore(path);
+    expect((await store.snapshot()).chats.confirm.outputLanguage).toBe('english');
+    expect((await store.snapshot()).chats.delivery.outputLanguage).toBe('english');
   });
 
   it('keeps invalid and stale selection callbacks safe without advancing', async () => {

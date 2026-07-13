@@ -74,6 +74,19 @@ def test_validation_rejects_empty_oversized_and_non_mp3_requests() -> None:
     assert client.post("/v1/audio/speech", json={"text": "hello", "format": "wav"}).status_code == 422
 
 
+def test_validation_rejects_unsupported_language_without_loading_engine() -> None:
+    loads = 0
+
+    def load() -> FakeEngine:
+        nonlocal loads
+        loads += 1
+        return FakeEngine()
+
+    client = TestClient(create_app(engine_factory=load))
+    assert client.post("/v1/audio/speech", json={"text": "hello", "language": "chinese"}).status_code == 422
+    assert loads == 0
+
+
 def test_engine_errors_are_safe_and_do_not_echo_input() -> None:
     client = TestClient(create_app(engine_factory=lambda: FakeEngine(fail=True)))
     response = client.post("/v1/audio/speech", json={"text": "private briefing text"})

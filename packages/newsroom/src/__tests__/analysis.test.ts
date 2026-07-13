@@ -29,7 +29,7 @@ const analysis = {
   strategicImplications: [{ text: 'Teams should prioritize useful workflows.', sourceStoryIds: ['story-1'], supportingQuotes: supported('Teams should prioritize useful workflows.') }],
   actionableRecommendations: [{ text: 'Test one focused user workflow.', sourceStoryIds: ['story-1'], supportingQuotes: supported('Test one focused user workflow.') }],
 };
-const input = { preferences: { topics: 'AI Glasses', analysisAngles: 'Product Strategy', timeRange: 'Past 3 Days' as const }, stories, evidence };
+const input = { preferences: { topics: 'AI Glasses', analysisAngles: 'Product Strategy', timeRange: 'Past 3 Days' as const, outputLanguage: 'french' as const }, stories, evidence };
 
 describe('LLM analysis schema and prompt', () => {
   it('requires citations and supporting quotes on every factual item', () => {
@@ -42,9 +42,16 @@ describe('LLM analysis schema and prompt', () => {
     const prompt = buildAnalysisPrompt(input);
     expect(prompt).toContain('AI Glasses');
     expect(prompt).toContain('Product Strategy');
+    expect(prompt).toContain('Generate every prose field in French');
+    expect(prompt).toContain('supportingQuotes verbatim in their original source language');
     expect(prompt).toContain('story-1');
     expect(prompt).toContain('The category is moving toward practical products.');
     expect(prompt).not.toContain('Do not use outside knowledge');
+  });
+
+  it('keeps the system prompt language-neutral', async () => {
+    const { ANTHROPIC_ANALYSIS_SYSTEM_PROMPT } = await import('../analysis.js');
+    expect(ANTHROPIC_ANALYSIS_SYSTEM_PROMPT).not.toMatch(/grounded English/i);
   });
 });
 
@@ -80,6 +87,44 @@ describe('AnthropicAnalysisGenerator', () => {
 });
 
 describe('analysis fact gate and script', () => {
+  it.each([
+    ['Spanish', {
+      executiveSummary: 'La categoría avanza hacia productos prácticos.',
+      headline: 'Lanzamiento de gafas con IA',
+      summary: 'Un lanzamiento verificado está dando forma al mercado.',
+      trend: 'El hardware y la IA están convergiendo.',
+      implication: 'Los equipos deben priorizar flujos de trabajo útiles.',
+      recommendation: 'Prueba un flujo de trabajo específico.',
+    }],
+    ['French', {
+      executiveSummary: 'La catégorie évolue vers des produits pratiques.',
+      headline: 'Lancement de lunettes IA',
+      summary: 'Un lancement vérifié façonne le marché.',
+      trend: "Le matériel et l'IA convergent.",
+      implication: 'Les équipes doivent privilégier les usages utiles.',
+      recommendation: 'Testez un usage ciblé.',
+    }],
+  ])('keeps %s spoken segments exactly in model-generated prose without internal labels', (_language, prose) => {
+    const localized = {
+      ...analysis,
+      executiveSummary: { ...analysis.executiveSummary, text: prose.executiveSummary },
+      storyBriefs: [{ ...analysis.storyBriefs[0], headline: prose.headline, summary: prose.summary }],
+      crossStoryTrends: [{ ...analysis.crossStoryTrends[0], text: prose.trend }],
+      strategicImplications: [{ ...analysis.strategicImplications[0], text: prose.implication }],
+      actionableRecommendations: [{ ...analysis.actionableRecommendations[0], text: prose.recommendation }],
+    };
+    const script = writeAnalysisBulletinScript(localized, stories, '2026-07-11T12:30:00.000Z');
+    const spoken = script.segments.filter((segment) => segment.kind === 'factual').map((segment) => segment.text);
+    expect(spoken).toEqual([
+      prose.executiveSummary,
+      `${prose.headline}. ${prose.summary}`,
+      prose.trend,
+      prose.implication,
+      prose.recommendation,
+    ]);
+    expect(spoken.join(' ')).not.toMatch(/Executive summary|Story brief|Cross-story trend|Strategic implication|Actionable recommendation/);
+  });
+
   it('approves claims with quotes found in verified original sources', () => {
     const gate = runAnalysisFactGate(analysis, stories, evidence, '2026-07-11T12:30:00.000Z');
     expect(gate.approved).toBe(true);

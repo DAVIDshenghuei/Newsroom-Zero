@@ -5,7 +5,7 @@ export interface VoiceSynthesisOutcome { audio: Uint8Array; provider: AudioProvi
 export type PocketTtsFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export interface SynthesizeOutcomeFunction {
-  synthesizeWithOutcome(text: string): Promise<VoiceSynthesisOutcome>;
+  synthesizeWithOutcome(text: string, options?: { language?: string; voiceId?: string }): Promise<VoiceSynthesisOutcome>;
 }
 
 export interface PocketTtsOptions {
@@ -29,7 +29,7 @@ export class PocketTtsClient implements VoiceSynthesizer {
     this.fetch = options.fetch ?? globalThis.fetch;
   }
 
-  async synthesize(voiceId: string, text: string): Promise<Uint8Array> {
+  async synthesize(voiceId: string, text: string, callOptions?: { language?: string }): Promise<Uint8Array> {
     let response: Response;
     try {
       response = await this.fetch(`${this.baseUrl}/v1/audio/speech`, {
@@ -38,7 +38,7 @@ export class PocketTtsClient implements VoiceSynthesizer {
           'Content-Type': 'application/json',
           ...(this.options.apiKey ? { Authorization: `Bearer ${this.options.apiKey}` } : {}),
         },
-        body: JSON.stringify({ text, voice: voiceId || 'alba', language: this.options.language ?? 'english', format: 'mp3' }),
+        body: JSON.stringify({ text, voice: voiceId || 'alba', language: callOptions?.language ?? this.options.language ?? 'english', format: 'mp3' }),
         signal: AbortSignal.timeout(this.options.timeoutMs ?? 180_000),
       });
     } catch {
@@ -69,10 +69,10 @@ export class FallbackVoiceSynthesizer implements VoiceSynthesizer {
     return result.audio;
   }
   /** Returns enriched outcome with provider and fallbackUsed metadata. */
-  async synthesizeWithOutcome(text: string): Promise<VoiceSynthesisOutcome> {
+  async synthesizeWithOutcome(text: string, callOptions?: { language?: string; voiceId?: string }): Promise<VoiceSynthesisOutcome> {
     try {
       return {
-        audio: await this.options.primary.synthesize(this.options.primaryVoiceId ?? 'alba', text),
+        audio: await this.options.primary.synthesize(callOptions?.voiceId ?? this.options.primaryVoiceId ?? 'alba', text, callOptions?.language ? { language: callOptions.language } : undefined),
         provider: 'pocket-tts', fallbackUsed: false,
       };
     } catch (primaryError) {

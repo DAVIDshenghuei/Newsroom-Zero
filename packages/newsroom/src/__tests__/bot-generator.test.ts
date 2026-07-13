@@ -6,8 +6,8 @@ import { createBriefingGenerator } from '../bot.js';
 import type { AnalysisGenerator } from '../analysis.js';
 import { BOT_COPY } from '../bot-copy.js';
 
-const audioPrefs = { topics: 'AI Glasses', analysisAngles: 'Product Strategy', timeRange: 'Past 3 Days' as const, deliveryMode: 'text_and_audio' as const };
-const textPrefs = { topics: 'AI Glasses', analysisAngles: 'Product Strategy', timeRange: 'Past 3 Days' as const, deliveryMode: 'text_only' as const };
+const audioPrefs = { topics: 'AI Glasses', analysisAngles: 'Product Strategy', timeRange: 'Past 3 Days' as const, outputLanguage: 'french' as const, deliveryMode: 'text_and_audio' as const };
+const textPrefs = { topics: 'AI Glasses', analysisAngles: 'Product Strategy', timeRange: 'Past 3 Days' as const, outputLanguage: 'french' as const, deliveryMode: 'text_only' as const };
 const searchResult = { name: 'A verified AI Glasses feature launch', url: 'https://meta.com/launch', content: 'A detailed product feature report.', type: 'text' as const };
 
 const validAnalysis = (storyId: string) => {
@@ -22,7 +22,7 @@ const validAnalysis = (storyId: string) => {
   };
 };
 
-const setup = async (analysisGenerator: AnalysisGenerator, ttsFails = false) => {
+const setup = async (analysisGenerator: AnalysisGenerator, ttsFails = false, voiceId?: string) => {
   const directory = await mkdtemp(join(tmpdir(), 'newsroom-generator-'));
   const search = vi.fn().mockResolvedValue([searchResult]);
   const fetch = vi.fn().mockResolvedValue('Published July 10, 2026\n# Verified article\nA detailed launch report with practical product information.');
@@ -39,6 +39,7 @@ const setup = async (analysisGenerator: AnalysisGenerator, ttsFails = false) => 
     linkup: { search, fetch, fetchDocument }, analysisGenerator,
     synthesizer: { synthesize }, telegram: { publish, sendMessage },
     artifactsDirectory: join(directory, 'artifacts'), episodesDirectory: join(directory, 'episodes'),
+    voiceId,
     now: () => new Date('2026-07-11T12:00:00.000Z'),
   });
   return { generate, directory, search, fetch, fetchDocument, synthesize, publish, sendMessage };
@@ -166,9 +167,38 @@ describe('LLM personalized briefing generator', () => {
     expect(vi.mocked(analysisGenerator.generate).mock.invocationCallOrder[0]).toBeLessThan(harness.synthesize.mock.invocationCallOrder[0]);
     expect(harness.publish).toHaveBeenCalledTimes(1);
     expect(harness.publish).toHaveBeenCalledWith(expect.objectContaining({
-      metadata: expect.objectContaining({ title: expect.stringContaining('Product Strategy') }),
+      metadata: expect.objectContaining({ title: 'AI Glasses Strategy Briefing', outputLanguage: 'french' }),
     }));
+    expect(harness.synthesize).toHaveBeenCalledWith('SAz9YHcvj6GT2YYXdXww', expect.any(String), { language: 'french_24l' });
+    const outcome = JSON.parse(await readFile(join(harness.directory, 'artifacts', 'audio-outcome.json'), 'utf8'));
+    expect(outcome.outputLanguage).toBe('french');
     expect(harness.sendMessage).toHaveBeenLastCalledWith('42', BOT_COPY.generationComplete);
+  });
+
+  it('uses exactly the model-generated selected-language title for episode metadata', async () => {
+    const modelTitle = 'Bulletin stratégique sur les lunettes IA';
+    const analysisGenerator: AnalysisGenerator = {
+      generate: vi.fn(async ({ stories }) => ({ ...validAnalysis(stories[0].id), title: modelTitle })),
+    };
+    const harness = await setup(analysisGenerator);
+    await harness.generate('42', audioPrefs);
+    expect(harness.publish).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ title: modelTitle }),
+    }));
+  });
+
+  it('uses the configured ElevenLabs voice for a Spanish request with a plain synthesizer', async () => {
+    const analysisGenerator: AnalysisGenerator = { generate: vi.fn(async ({ stories }) => validAnalysis(stories[0].id)) };
+    const harness = await setup(analysisGenerator, false, 'configured-elevenlabs-voice');
+    await harness.generate('42', { ...audioPrefs, outputLanguage: 'spanish' });
+    expect(harness.synthesize).toHaveBeenCalledWith(
+      'configured-elevenlabs-voice',
+      expect.any(String),
+      { language: 'spanish_24l' },
+    );
+    expect(harness.publish).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ provider: 'elevenlabs', outputLanguage: 'spanish' }),
+    }));
   });
 
   it('never voices or publishes when the LLM fails', async () => {
@@ -197,7 +227,7 @@ describe('LLM personalized briefing generator', () => {
     expect(harness.sendMessage).toHaveBeenCalledWith('42', expect.stringContaining(BOT_COPY.audioUnavailable));
     expect(harness.sendMessage).toHaveBeenLastCalledWith('42', BOT_COPY.generationComplete);
     const outcome = JSON.parse(await readFile(join(harness.directory, 'artifacts', 'audio-outcome.json'), 'utf8'));
-    expect(outcome).toEqual({ audioRequested: true, audioGenerated: false, provider: null, fallbackUsed: false });
+    expect(outcome).toEqual({ audioRequested: true, audioGenerated: false, provider: null, fallbackUsed: false, outputLanguage: 'french' });
   });
 
   it('includes correct episode audio outcome in artifacts for text_only mode', async () => {

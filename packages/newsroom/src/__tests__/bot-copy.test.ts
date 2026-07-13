@@ -15,6 +15,8 @@ describe('bot copy', () => {
 
   it('includes delivery mode options', () => {
     expect(BOT_COPY.askDelivery).toContain('How would you like');
+    expect(BOT_COPY.askLanguage).toBe('Choose an output language:');
+    expect(BOT_COPY.invalidLanguage).toContain('Please choose');
     expect(BOT_COPY.textOnly).toMatch(/text\s*only/i);
     expect(BOT_COPY.textAndAudio).toMatch(/text.*audio|audio.*text/i);
   });

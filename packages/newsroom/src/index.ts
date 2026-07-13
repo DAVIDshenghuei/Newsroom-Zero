@@ -32,6 +32,7 @@ export * from './analysis.js';
 export * from './codex-analysis.js';
 export * from './bot-copy.js';
 export * from './bot.js';
+export * from './languages.js';
 export * from './search-policy.js';
 
 // ─── VerifiedClaim ────────────────────────────────────────────

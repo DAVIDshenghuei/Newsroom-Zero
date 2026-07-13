@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { OUTPUT_LANGUAGE_VALUES, type OutputLanguage } from './languages.js';
 import {
   BulletinScriptSchema,
   EditionArtifactSchema,
@@ -20,6 +21,7 @@ export const EpisodeMetadataSchema = z.object({
   audioGenerated: z.boolean().optional(),
   provider: z.string().optional(),
   fallbackUsed: z.boolean().optional(),
+  outputLanguage: z.enum(OUTPUT_LANGUAGE_VALUES).optional(),
   stories: z.array(z.object({
     headline: z.string().min(1),
     source: z.string().min(1),
@@ -30,7 +32,7 @@ export const EpisodeMetadataSchema = z.object({
 export type EpisodeMetadata = z.infer<typeof EpisodeMetadataSchema>;
 
 export interface VoiceSynthesizer {
-  synthesize(voiceId: string, text: string): Promise<Uint8Array>;
+  synthesize(voiceId: string, text: string, options?: { language?: string }): Promise<Uint8Array>;
 }
 
 export interface VoiceEpisodeInput {
@@ -46,6 +48,7 @@ export interface VoiceEpisodeInput {
   audioGenerated?: boolean;
   provider?: string;
   fallbackUsed?: boolean;
+  outputLanguage?: OutputLanguage;
 }
 
 export const concise = (value: string): string => value.replace(/\s+/g, ' ').trim();
@@ -77,6 +80,7 @@ export async function createVoiceEpisode(input: VoiceEpisodeInput): Promise<{
     audioGenerated: input.audioGenerated ?? true,
     provider: input.provider,
     fallbackUsed: input.fallbackUsed,
+    outputLanguage: input.outputLanguage,
     stories: stories.map(({ headline, source, canonicalUrl }) => ({
       headline, source, url: canonicalUrl,
     })),
