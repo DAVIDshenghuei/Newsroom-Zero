@@ -102,7 +102,7 @@ describe('LLM personalized briefing generator', () => {
     await harness.generate('42', textPrefs);
     expect(harness.search).toHaveBeenNthCalledWith(1, expect.any(String), {
       from: '2026-07-08T12:00:00.000Z', to: '2026-07-11T12:00:00.000Z',
-      includeDomains: ['meta.com', 'google.com', 'snap.com', 'xreal.com', 'brilliant.xyz', 'viture.com', 'rayneo.com', 'uploadvr.com', 'roadtovr.com'],
+      includeDomains: ['meta.com', 'google.com', 'snap.com', 'xreal.com', 'brilliant.xyz', 'viture.com', 'rayneo.com', 'uploadvr.com', 'roadtovr.com', 'apple.com', 'qualcomm.com', 'magicleap.com', 'rokid.com', 'evenrealities.com', 'mixed-news.com', 'xrtoday.com', 'theverge.com', 'androidcentral.com'],
       excludeDomains: [],
     });
     expect(harness.search.mock.calls[0]?.[0]).not.toContain('site:');
