@@ -24,11 +24,15 @@ export interface InlineKeyboardMarkup {
 
 export interface TelegramUpdate {
   update_id: number;
-  message?: { chat: { id: number | string }; text?: string };
+  message?: {
+    message_id?: number; from?: { id: number | string };
+    chat: { id: number | string; type?: 'private' | 'group' | 'supergroup' | 'channel' }; text?: string;
+    document?: { file_id: string; file_name?: string; mime_type?: string; file_size?: number };
+  };
   callback_query?: {
-    id: string;
+    id: string; from?: { id: number | string };
     data?: string;
-    message?: { chat: { id: number | string } };
+    message?: { message_id?: number; chat: { id: number | string; type?: 'private' | 'group' | 'supergroup' | 'channel' } };
   };
 }
 
@@ -72,10 +76,10 @@ export class TelegramClient {
     return result as TelegramUpdate[];
   }
 
-  async sendMessage(chatId: string, text: string, replyMarkup?: InlineKeyboardMarkup): Promise<number> {
+  async sendMessage(chatId: string, text: string, replyMarkup?: InlineKeyboardMarkup, signal?: AbortSignal): Promise<number> {
     const result = await this.request('sendMessage', {
       chat_id: chatId, text, ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
-    });
+    }, signal);
     const messageId = result && typeof result === 'object' && 'message_id' in result ? result.message_id : undefined;
     if (typeof messageId !== 'number') throw new Error('Telegram response did not include a message_id');
     return messageId;
@@ -85,11 +89,70 @@ export class TelegramClient {
     await this.request('answerCallbackQuery', { callback_query_id: callbackQueryId });
   }
 
-  private async request(method: string, body: unknown): Promise<unknown> {
+  async downloadFile(fileId: string, maximumBytes = 5_000_000): Promise<Uint8Array> {
+    const result = await this.request('getFile', { file_id: fileId });
+    const filePath = result && typeof result === 'object' && 'file_path' in result ? result.file_path : undefined;
+    if (typeof filePath !== 'string' || !/^[A-Za-z0-9_./-]+$/.test(filePath) || filePath.includes('..')) {
+      throw new Error('Telegram getFile response did not include a safe file path');
+    }
+    const controller = new AbortController();
+    let response: Response;
+    try { response = await this.fetch(`${this.baseUrl}/file/bot${this.token}/${filePath}`, { signal: controller.signal }); }
+    catch { throw new Error('Telegram file download failed'); }
+    if (!response.ok) throw new Error(`Telegram file download failed (${response.status})`);
+    const declared = Number(response.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > maximumBytes) throw new Error('Telegram file exceeds maximum size');
+    if (!response.body) throw new Error('Telegram file download failed');
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maximumBytes) {
+        controller.abort();
+        await reader.cancel();
+        throw new Error('Telegram file exceeds maximum size');
+      }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    return bytes;
+  }
+
+  async editMessage(chatId: string, messageId: number, text: string): Promise<number> {
+    const result = await this.request('editMessageText', { chat_id: chatId, message_id: messageId, text });
+    const returned = result && typeof result === 'object' && 'message_id' in result ? result.message_id : undefined;
+    if (typeof returned !== 'number') throw new Error('Telegram response did not include a message_id');
+    return returned;
+  }
+
+  async sendPrivateAudio(chatId: string, audio: Uint8Array, filename: string, caption: string, signal?: AbortSignal): Promise<number> {
+    if (!isMp3(audio)) throw new Error('Audio is not an MP3 (expected ID3 or MPEG frame signature)');
+    const body = new FormData();
+    body.set('chat_id', chatId);
+    body.set('audio', new Blob([audio.slice().buffer], { type: 'audio/mpeg' }), filename);
+    body.set('caption', caption);
+    let response: Response;
+    try { response = await this.fetch(`${this.baseUrl}/bot${this.token}/sendAudio`, { method: 'POST', body, signal }); }
+    catch { throw new Error('Telegram private audio delivery failed'); }
+    if (!response.ok) throw new Error(`Telegram private audio delivery failed (${response.status})`);
+    let payload: unknown;
+    try { payload = await response.json(); } catch { throw new Error('Telegram returned an invalid JSON response'); }
+    const result = payload && typeof payload === 'object' && 'ok' in payload && payload.ok === true && 'result' in payload ? payload.result : undefined;
+    const messageId = result && typeof result === 'object' && 'message_id' in result ? result.message_id : undefined;
+    if (typeof messageId !== 'number') throw new Error('Telegram response did not include a message_id');
+    return messageId;
+  }
+
+  private async request(method: string, body: unknown, signal?: AbortSignal): Promise<unknown> {
     let response: Response;
     try {
       response = await this.fetch(`${this.baseUrl}/bot${this.token}/${method}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal,
       });
     } catch (error) {
       const detail = error instanceof Error ? error.message.replaceAll(this.token, '[REDACTED]') : '';

@@ -1,52 +1,103 @@
 # AI Newsroom Studio
 
-> A self-hosted newsroom that researches focused AI topics, checks every citation, and delivers text or spoken briefings through Telegram.
+> Important reading, ready to listen.
 
-[![Tests](https://img.shields.io/badge/tests-174%20passing-22c55e)](#quality-gates)
+**Trusted news and your own documents, turned into portable audio.**
+
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6)](https://www.typescriptlang.org/)
 [![Telegram](https://img.shields.io/badge/Telegram-Open%20Bot-26A5E4)](https://t.me/Newsroomhermesbot)
 [![Codex CLI](https://img.shields.io/badge/analysis-Codex%20CLI-111827)](https://github.com/openai/codex)
 
-[Try the current Telegram bot](https://t.me/Newsroomhermesbot) · [Run locally](#quick-start) · [See the architecture](#architecture)
+[Open the Telegram bot](https://t.me/Newsroomhermesbot) · [Listen to the latest episode](https://ai-newsroom-studio.vercel.app/episodes/latest) · [Run locally](#quick-start)
 
-Choose an AI beat, the angle you care about, and how far back to look. AI Newsroom Studio researches it, checks the evidence, and returns a cited AI News Podcast or text briefing. Behind that simple flow are a policy-aware AI News Aggregator, Linkup Search, structured analysis through the local Codex CLI, a blocking Fact Gate, and Text-to-Speech delivery.
+AI Newsroom Studio is a private listening studio with two distinct creation modes:
 
-## Why AI Newsroom Studio?
+1. **News Briefing** researches a chosen AI beat, analyzes fetched original articles, checks claims against cited evidence, and returns text or audio.
+2. **Document to Voice** reads a user-provided TXT or Markdown file verbatim through local speech generation, without research, rewriting, or translation.
 
-General news search is noisy, and fluent summaries can hide weak evidence. This automated podcast generator narrows research before generation: each request applies a topic-based news search policy, accepts only fetched original articles inside the chosen publication window, and blocks unsupported claims before voice or publication. It is a practical way to follow AI agents news, Claude Code, OpenAI API changes, smart glasses and AI glasses, and other focused beats without treating search snippets as evidence.
+The modes share a Telegram entry point and audio infrastructure, but their source handling stays separate. Document prose never enters Linkup, Codex analysis, the Fact Gate, news publication, or the latest-episode files.
 
-## What it does
+## Current experience
 
-The English-only Telegram UI guides one listener through five single-select choices, researches the selected beat, filters and ranks original sources, asks the official Codex CLI for structured analysis in the selected output language, verifies claim-level citations, and returns either a text briefing or an MP3 with clickable sources.
+### Create a News Briefing
 
-| Capability | Current behavior |
-|---|---|
-| Guided Telegram workflow | One topic, one analysis angle, one range, one output language, and one delivery mode per briefing |
-| Multilingual briefings | Generates prose in English, French, German, Spanish, Italian, Portuguese, or Traditional Chinese while preserving supporting quotes verbatim |
-| Policy-constrained discovery | Composes Topic + Angle JSON policies and sends native `includeDomains` / `excludeDomains` to Linkup |
-| Local source boundary | Rechecks URL hostnames locally, accepting an exact configured domain or its subdomains only |
-| Original-source relevance | Applies topic and angle terms to fetched original article content, never title/snippet matches alone |
-| Publication safety | Enforces 24-hour, 3-day, or 7-day windows and rejects unknown, future, and out-of-window dates |
-| Ranking and deduplication | Prefers tier 1 over tier 2, then uses policy matches, recency, and body quality while deduplicating |
-| Fact-gated analysis | Requires verified story IDs and exact supporting excerpts for generated factual claims |
-| Audio delivery | Routes six languages to local Pocket TTS and Traditional Chinese to local Kokoro-82M, with optional ElevenLabs fallback; failures degrade to cited text |
-| Fail-closed operation | Zero eligible results stop before LLM analysis, TTS, episode writes, or Telegram publication |
-| Diagnostics | Writes composed policies, rejection reports, candidates, evidence, analysis, Fact Gate, and audio outcomes to local artifacts |
+The English-only Telegram interface asks for one topic, analysis angle, publication range, output language, and delivery mode. AI Newsroom Studio then:
 
-## Telegram flow
+1. Composes validated Topic + Analysis search policies.
+2. Applies Linkup domain restrictions and a local hostname-boundary check.
+3. Fetches original articles and rejects missing, invalid, future, or out-of-window publication dates.
+4. Ranks eligible tier 1 and tier 2 sources and removes duplicates.
+5. Runs structured Codex CLI analysis in the selected output language.
+6. Blocks unsupported factual claims at the claim-level Fact Gate.
+7. Delivers cited text or audio through Telegram.
 
-The public bot is currently available at [@Newsroomhermesbot](https://t.me/Newsroomhermesbot); the handle retains its existing external name.
+News briefings support English, French, German, Spanish, Italian, Portuguese, and Traditional Chinese output. Six languages route to Pocket TTS and Traditional Chinese routes to Kokoro-82M. ElevenLabs remains an optional fallback for the news path; if all audio providers fail, delivery degrades safely to cited text.
 
-1. Press **Start**.
-2. Choose one Topic: **AI Agents**, **AI Glasses**, **Claude Code**, **OpenAI API**, **AI x Blockchain**, or **AI Travel**.
-3. Choose one Angle: **Startup Opportunities**, **Product Strategy**, **Technical Trends**, or **Investment Signals**.
-4. Choose one range: **Past 24 Hours**, **Past 3 Days**, or **Past 7 Days**.
-5. Choose an output language: **English**, **French**, **German**, **Spanish**, **Italian**, **Portuguese**, or **Traditional Chinese**.
-6. Choose **Text Only** or **Text + Audio**.
-7. Review the confirmation and press **Generate Now**.
-8. Receive a fact-gated briefing with source links in the same Telegram chat.
+### Turn a Document into Audio
 
-The output choice affects generated prose and per-call TTS settings only. It does not change discovery domains, publication windows, or relevance rules, and supporting quotes remain exact excerpts in the source language.
+Release A is intentionally narrow:
+
+- Transport: Telegram
+- Accepted files: TXT and Markdown only, up to 5 MB and 10,000 extracted characters
+- Voice languages: English and Traditional Chinese only
+- English voice: local Pocket TTS with `alba`
+- Traditional Chinese voice: local Kokoro-82M with `zf_xiaoxiao`
+- Text behavior: verbatim order and wording; no rewrite and no translation
+- External speech fallback: off
+- Retention: cleanup runs at 24 hours while the bot is online; overdue jobs are removed on the next startup scan
+- Concurrency: one active conversion per Telegram user
+- Output: duration-validated MP3 delivered to the same Telegram chat
+
+Telegram is a cloud transport. The bot downloads the accepted file for processing by the configured local service, so this mode is described as local processing rather than a device-only privacy guarantee. Confirmation copy shows the route before generation.
+
+## Processing contract
+
+Document confirmations expose these boundaries:
+
+```text
+Transport: Telegram
+Processing: Local
+External fallback: Off
+Translation: Off
+Retention target: 24 hours · Cleanup: startup and every 60 seconds while the local bot is online.
+```
+
+The bot runs cleanup independently from polling and speech generation. If the bot is offline at expiry, deletion is eventually consistent and occurs during the next startup scan.
+
+Analytics events contain safe operational properties such as file type, size bucket, character bucket, language, provider, duration, processing time, and error code. They do not contain the source filename or extracted prose.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    U[Telegram user] --> M{Creation mode}
+    M -->|News Briefing| P[Topic + Analysis policy]
+    P --> L[Linkup constrained search]
+    L --> O[Original article fetch]
+    O --> G[Publication + relevance gates]
+    G --> C[Codex CLI analysis]
+    C --> F[Claim-level Fact Gate]
+    F --> N[Text or news audio]
+    M -->|Document to Voice| X[Safe TXT / Markdown extraction]
+    X --> V[Exact-preserving chunks]
+    V --> T[Local Pocket / Kokoro]
+    T --> A[Merge + duration validation]
+    A --> D[Private Telegram MP3]
+```
+
+The framework-neutral `@ai-newsroom-studio/newsroom` package owns contracts, policy composition, search and fetch clients, ranking, analysis adapters, the Fact Gate, speech routing, document jobs, and Telegram workflows. The Next.js app owns the editorial landing page, waitlist endpoint, and latest episode player. The local FastAPI service is the single process that loads Pocket or Kokoro speech models.
+
+Document jobs live under isolated, gitignored artifacts. They never write or publish `apps/web/public/episodes/latest.json` or `latest.mp3`.
+
+## News search policy
+
+Each news request composes a validated Topic profile with a validated analysis Angle. The Topic supplies beat keywords, tiered domains, exclusions, and a suggested range; the Telegram range always wins. The Angle adds required, preferred, and excluded terms.
+
+Only tiers 1 and 2 participate in search and ranking. Tier 3 remains discovery-only. Linkup receives active domains through native restrictions, then a local hostname filter accepts only an exact configured domain or its subdomains. Final relevance uses fetched original content rather than provider titles or snippets.
+
+Past 24 Hours, Past 3 Days, and Past 7 Days become exact UTC boundaries. Unknown, malformed, future, and early dates fail closed. If no story survives, the pipeline stops before Codex, speech generation, publication, or episode writes.
+
+## Speech routing
 
 | Output | Local engine | Language/model | Primary voice |
 |---|---|---|---|
@@ -58,71 +109,17 @@ The output choice affects generated prose and per-call TTS settings only. It doe
 | Portuguese | Pocket TTS | `portuguese` | `rafael` |
 | Traditional Chinese | Kokoro-82M | `chinese_traditional` / `lang_code=z` | `zf_xiaoxiao` |
 
-ElevenLabs with `eleven_multilingual_v2` remains the configured fallback, not an additional menu capability.
-
-## Search policy
-
-Each request composes a validated Topic profile with a validated analysis Angle. The Topic supplies beat keywords, tiered domains, exclusions, and a suggested range; the selected Telegram range always wins. The Angle adds required, preferred, and excluded terms.
-
-### Topics and active sources
-
-Only tiers 1 and 2 participate in search and ranking. Tier 3 is deliberately inactive.
-
-| Topic | Active sources (tiers 1 + 2) |
-|---|---:|
-| AI Agents | 24 |
-| AI Glasses | 26 |
-| Claude Code | 23 |
-| OpenAI API | 20 |
-| AI x Blockchain | 24 |
-| AI Travel | 22 |
-
-Linkup receives the active domains through its native `includeDomains` field and topic exclusions through `excludeDomains`. A second, local hostname-boundary filter prevents suffix tricks and rejects results outside the composed allowlist. Relevance is evaluated only after fetching the original article: a Linkup title or snippet match cannot make an otherwise irrelevant article eligible.
-
-Publication dates also fail closed. **Past 24 Hours**, **Past 3 Days**, and **Past 7 Days** become exact UTC boundaries; missing dates, invalid dates, future dates, and dates before the boundary are rejected. Eligible stories are deduplicated and ranked with source tier as a first-class signal.
-
-If no story survives, the pipeline writes diagnostic reports and stops before Codex, Text-to-Speech, episode mutation, or Telegram publication.
-
-## Architecture
-
-```mermaid
-flowchart TD
-    U[Telegram: Topic + Angle + Range + Language + Delivery] --> P[Compose validated search policy]
-    P --> L[Linkup search<br/>includeDomains + excludeDomains]
-    L --> H[Local hostname boundary filter]
-    H --> O[Fetch original articles]
-    O --> W[Publication-window gate]
-    W --> R[Original-only relevance gate]
-    R --> Z{Eligible stories?}
-    Z -- No --> D[Write diagnostics and stop]
-    Z -- Yes --> K[Tier-aware deduplication and ranking]
-    K --> C[Codex CLI structured analysis<br/>selected prose language]
-    C --> F{Claim-level Fact Gate}
-    F -- Blocked --> D
-    F -- Approved --> M{Delivery mode}
-    M -- Text Only --> T[Telegram cited text]
-    M -- Text + Audio --> V{Local TTS route}
-    V -- Six Pocket languages --> P[Pocket TTS]
-    V -- Traditional Chinese --> Q[Kokoro-82M]
-    P -- Failure --> E[Optional ElevenLabs fallback]
-    Q -- Failure --> E
-    E -- Failure --> T
-    P -- Success --> A[Telegram MP3 + latest episode]
-    Q -- Success --> A
-    E -- Success --> A
-```
-
-The standalone RSS commands remain available for compatibility, while the interactive bot uses the policy-constrained Linkup → Codex → Fact Gate → voice path.
+The seven-language table describes news output. Release A document delivery uses only English and Traditional Chinese, with external fallback disabled.
 
 ## Stack
 
 - TypeScript, Node.js 22+, pnpm workspaces, Zod, and Vitest
 - Next.js 14 for the landing page and latest episode player
-- Linkup Search over direct HTTPS for discovery and original-source fetching
-- Official OpenAI Codex CLI with subscription OAuth and `gpt-5.6-sol` for structured analysis
-- Python, FastAPI, Kyutai Pocket TTS, Kokoro-82M with Misaki Chinese G2P, ffmpeg, and optional ElevenLabs fallback
-- Telegram Bot API for conversation state and delivery
-- A retained Anthropic analysis adapter with injected contract tests; it is not the current bot runtime
+- Linkup Search for constrained news discovery and original-source fetching
+- Official OpenAI Codex CLI with subscription OAuth and `gpt-5.6-sol` for news analysis
+- Python, FastAPI, Kyutai Pocket TTS, Kokoro-82M, ffmpeg, and ffprobe
+- Optional ElevenLabs fallback for news audio only
+- Telegram Bot API for conversation state, file transport, and delivery
 
 ## Quick start
 
@@ -130,11 +127,9 @@ The standalone RSS commands remain available for compatibility, while the intera
 
 - Node.js 22 or newer
 - pnpm 10 or newer
-- The official Codex CLI installed and authenticated with subscription OAuth (`codex login`)
-- A Telegram bot token and Linkup API key
-- Python 3.10–3.14, `uv`, and `ffmpeg` for the local Pocket/Kokoro TTS service
-
-This project is designed and tested with Codex subscription OAuth: run `codex login` before starting the bot. Codex may support other authentication methods, but they are outside this project's verified setup; the application does not enforce a particular Codex authentication method at runtime. The bot launches Codex as an ephemeral, read-only subprocess, using `gpt-5.6-sol` by default.
+- Official Codex CLI authenticated with subscription OAuth (`codex login`)
+- Telegram bot token and Linkup API key
+- Python 3.10–3.14, `uv`, ffmpeg, and ffprobe for local speech generation
 
 ```bash
 git clone https://github.com/DAVIDshenghuei/ai-newsroom-studio.git
@@ -143,7 +138,7 @@ pnpm install
 cp .env.example .env
 ```
 
-Configure `.env` without committing secrets. Runtime variable names are:
+Configure `.env` without committing secrets:
 
 ```dotenv
 TELEGRAM_BOT_TOKEN=
@@ -162,9 +157,7 @@ ELEVENLABS_API_KEY=
 ELEVENLABS_VOICE_ID=
 ```
 
-Normally, leave `CODEX_CLI_ENTRYPOINT` blank: the bot runs the official `codex` executable from `PATH`. Set it only when you need to launch a specific Codex JavaScript entrypoint through the current Node.js executable. Keep `CODEX_ANALYSIS_MODEL=gpt-5.6-sol` and `CODEX_ANALYSIS_TIMEOUT_MS=300000` unless you intentionally need different runtime settings.
-
-When Pocket TTS authentication is enabled, `POCKET_TTS_API_KEY` and `POCKET_TTS_SERVICE_API_KEY` must contain the same shared secret: the bot sends the former and the local service validates it against the latter.
+Normally leave `CODEX_CLI_ENTRYPOINT` blank so the bot runs `codex` from `PATH`. The current verified analysis default is `CODEX_ANALYSIS_MODEL=gpt-5.6-sol`. When Pocket authentication is enabled, `POCKET_TTS_API_KEY` and `POCKET_TTS_SERVICE_API_KEY` must contain the same shared secret.
 
 ### Run locally
 
@@ -174,9 +167,9 @@ Start the web app:
 pnpm --filter @ai-newsroom-studio/web dev
 ```
 
-The landing page is at <http://localhost:3000> and the latest episode page is at <http://localhost:3000/episodes/latest>.
+The landing page is at <http://localhost:3000>; the latest episode player remains at <http://localhost:3000/episodes/latest>.
 
-Start the local Pocket/Kokoro TTS service in a second terminal:
+Start the local speech service in a second terminal:
 
 ```bash
 pnpm pocket:service
@@ -188,35 +181,9 @@ Set `POCKET_TTS_BASE_URL=http://127.0.0.1:8001`, then start the bot in a third t
 pnpm newsroom:bot
 ```
 
-Run only one long-polling process per Telegram token; concurrent `getUpdates` consumers cause Telegram `409` conflicts. Compatibility commands such as `newsroom:prepare`, `newsroom:voice`, and `newsroom:publish-telegram` intentionally keep their existing names.
+Keep only one long-polling process active per Telegram token. Concurrent `getUpdates` consumers cause Telegram `409` conflicts. Compatibility commands such as `newsroom:prepare`, `newsroom:voice`, and `newsroom:publish-telegram` retain their existing names.
 
-## Add a Topic
-
-Create the next ordered JSON file under `packages/newsroom/config/search-policies/topics/`. It must satisfy the strict Zod schema; this compact example shows the required shape:
-
-```json
-{
-  "id": "example-beat",
-  "topicLabel": "Example Beat",
-  "menuLabel": "Example Beat",
-  "sourceTiers": {
-    "tier1": [{ "name": "Primary Source", "domain": "example.com" }],
-    "tier2": [],
-    "tier3": []
-  },
-  "activeSearchTiers": ["tier1", "tier2"],
-  "excludedSources": [],
-  "includeKeywords": ["Example AI"],
-  "excludeKeywords": [],
-  "suggestedTimeRange": "24h"
-}
-```
-
-Then add the menu label to the bot's topic choices and update the search-policy contract fixture. Domains must be valid DNS hostnames and unique across tiers and exclusions.
-
-## Quality gates
-
-The verified TypeScript baseline is **174 tests passing**. The local Pocket/Kokoro TTS service has a separate **9-test** Python suite.
+## Commands and quality gates
 
 ```bash
 pnpm test
@@ -225,24 +192,32 @@ pnpm build
 pnpm pocket:test
 ```
 
-The TypeScript suite covers schemas, policy composition, native Linkup domain options, hostname boundaries, original-only relevance, publication windows, tier-aware ranking and deduplication, zero-result early exits, Codex analysis, Fact Gate behavior, Pocket/Kokoro routing, TTS fallback, Telegram delivery, and web repositories. The Python suite exercises HTTP validation, authentication, per-provider lazy engine reuse, Kokoro chunk concatenation, safe errors, and MP3 conversion.
+The verified TypeScript baseline is **235 tests passing**. The local Pocket/Kokoro service has a separate **9-test** Python suite.
+
+The TypeScript suite covers schemas, policy composition, domain restrictions, hostname boundaries, original-only relevance, publication windows, ranking, zero-result exits, Codex analysis, the Fact Gate, speech routing, fallback behavior, Telegram delivery, document extraction and chunking, privacy-safe events, audio validation, protected episode artifacts, brand claims, and web repositories. The Python suite covers HTTP validation, authentication, lazy engine reuse, Kokoro chunk concatenation, safe errors, and MP3 conversion.
 
 ## Repository layout
 
 ```text
 apps/web/                                      Next.js landing page and latest episode player
 packages/newsroom/config/search-policies/     Topic and analysis policy JSON
-packages/newsroom/src/                        Search, ranking, analysis, Fact Gate, voice, and bot
-services/pocket-tts-service/                  Local FastAPI Pocket TTS service
+packages/newsroom/src/                        News and document listening workflows
+services/pocket-tts-service/                  Local FastAPI Pocket/Kokoro TTS service
 config/feeds.json                              Standalone RSS/Atom feed configuration
-artifacts/                                     Local diagnostic artifacts (gitignored)
-apps/web/public/episodes/                      Generated latest episode metadata and audio
+artifacts/                                     Local jobs and diagnostics (gitignored)
+apps/web/public/episodes/                      Protected latest news episode artifacts
 ```
 
 ## Security
 
-- Keep credentials only in the gitignored `.env`; never commit keys, tokens, generated private briefings, or Codex authentication state.
-- Codex analysis runs ephemerally with a read-only sandbox and receives fetched news as untrusted input.
-- Search and analysis failures fail closed, and generated factual claims cannot pass without verified original-source excerpts.
-- Diagnostic artifacts contain research content and should be treated as local data even though secrets are excluded.
+- Keep credentials in the gitignored `.env`; never commit keys, tokens, document jobs, generated diagnostics, or Codex authentication state.
+- Telegram transports document uploads to the bot. Local processing and 24-hour retention do not change that transport boundary.
+- Document prose never goes to Linkup, Codex, the Fact Gate, ElevenLabs, or news publication.
+- Codex analysis runs only on the news path, in a read-only sandbox, with fetched articles treated as untrusted input.
+- Search and analysis fail closed; generated factual claims require verified original-source excerpts.
+- Filenames are sanitized, job paths are server-owned, and completed document audio must pass MP3 and duration validation.
 - Rotate any credential exposed in logs, screenshots, chat, or issue reports.
+
+## Project history
+
+AI Newsroom Studio began as a focused, policy-constrained AI newsroom. That trusted-news path remains intact. Release A adds the Telegram Document to Voice tracer bullet under the broader promise of important reading made listenable, while keeping the product name and technical repository structure unchanged.

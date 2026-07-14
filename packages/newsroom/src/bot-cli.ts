@@ -6,6 +6,8 @@ import { LinkupClient } from './linkup.js';
 import { TelegramClient } from './telegram.js';
 import { DEFAULT_ELEVENLABS_VOICE_ID, type VoiceSynthesizer } from './voice.js';
 import { FallbackVoiceSynthesizer, PocketTtsClient } from './pocket-tts.js';
+import { DocumentVoiceRepository, DocumentVoiceService } from './document-voice.js';
+import { DocumentVoiceTelegramFlow } from './document-telegram.js';
 
 const required = (name: string): string => {
   const value = process.env[name];
@@ -25,10 +27,11 @@ async function main(): Promise<void> {
   });
 
   let synthesizer: VoiceSynthesizer;
+  let pocket: PocketTtsClient | undefined;
   const unavailable: VoiceSynthesizer = { synthesize: async () => { throw new Error('No TTS provider is configured'); } };
   const pocketBaseUrl = process.env.POCKET_TTS_BASE_URL;
   if (pocketBaseUrl) {
-    const pocket = new PocketTtsClient({
+    pocket = new PocketTtsClient({
       baseUrl: pocketBaseUrl,
       apiKey: process.env.POCKET_TTS_API_KEY,
       language: process.env.POCKET_TTS_LANGUAGE,
@@ -44,13 +47,39 @@ async function main(): Promise<void> {
   }
 
   const store = new BotStateStore(resolve(process.cwd(), 'artifacts/bot-state.json'));
+  const documentRepository = new DocumentVoiceRepository({
+    root: resolve(process.cwd(), 'artifacts/document-voice-jobs'),
+    emit: (event) => { console.log(JSON.stringify({ type: 'document_voice_event', ...event })); },
+  });
+  let documentVoice: DocumentVoiceTelegramFlow | undefined;
+  if (pocketBaseUrl) {
+    try {
+      const documentPocket = new PocketTtsClient({
+        baseUrl: pocketBaseUrl, apiKey: process.env.POCKET_TTS_API_KEY,
+        language: process.env.POCKET_TTS_LANGUAGE,
+        timeoutMs: process.env.POCKET_TTS_TIMEOUT_MS ? Number(process.env.POCKET_TTS_TIMEOUT_MS) : undefined,
+        loopbackOnly: true,
+      });
+      const documentSynthesizer = new FallbackVoiceSynthesizer({ primary: documentPocket, primaryVoiceId: process.env.POCKET_TTS_VOICE || 'alba' });
+      documentVoice = new DocumentVoiceTelegramFlow({
+        repository: documentRepository,
+        service: new DocumentVoiceService({ repository: documentRepository, synthesizer: documentSynthesizer }), telegram,
+      });
+    } catch { console.error('Document Voice disabled: local TTS endpoint is invalid.'); }
+  }
   const bot = new NewsroomBot({
-    store, telegram,
+    store, telegram, documentVoice,
     generate: createBriefingGenerator({
       telegram, linkup, analysisGenerator, synthesizer,
       voiceId: process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID,
     }),
   });
+  await documentRepository.cleanupExpired();
+  await documentVoice?.recover();
+  const cleanupTimer = setInterval(() => {
+    void documentRepository.cleanupExpired().catch(() => console.error('Document job cleanup failed'));
+  }, 60_000);
+  cleanupTimer.unref();
   let running = true;
   process.once('SIGINT', () => { running = false; });
   process.once('SIGTERM', () => { running = false; });
@@ -65,6 +94,7 @@ async function main(): Promise<void> {
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_000));
     }
   }
+  clearInterval(cleanupTimer);
 }
 
 main().catch((error: unknown) => {

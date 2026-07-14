@@ -19,6 +19,7 @@ import { concise, DEFAULT_ELEVENLABS_VOICE_ID, EpisodeMetadataSchema, type Voice
 import type { SynthesizeOutcomeFunction, VoiceSynthesisOutcome } from './pocket-tts.js';
 import { buildSearchQuery, composeSearchPolicy, filterBySearchPolicy, filterBySourceDomain } from './search-policy.js';
 import { getOutputLanguage, OUTPUT_LANGUAGES, OUTPUT_LANGUAGE_VALUES, type OutputLanguage } from './languages.js';
+import type { DocumentTelegramContext, DocumentVoiceTelegramFlow } from './document-telegram.js';
 
 export const TIME_RANGES = ['Past 24 Hours', 'Past 3 Days', 'Past 7 Days'] as const;
 export type TimeRange = typeof TIME_RANGES[number];
@@ -163,6 +164,7 @@ export interface NewsroomBotOptions {
   store: BotStateStore;
   telegram: BotTelegram;
   generate: (chatId: string, preferences: ResearchPreferences) => Promise<void>;
+  documentVoice?: Pick<DocumentVoiceTelegramFlow, 'begin' | 'isActive' | 'handleDocument' | 'handleCallback'>;
 }
 
 const rangeKeyboard: InlineKeyboardMarkup = {
@@ -182,6 +184,10 @@ const languageKeyboard: InlineKeyboardMarkup = {
 const generateKeyboard: InlineKeyboardMarkup = {
   inline_keyboard: [[{ text: BOT_COPY.generateNow, callback_data: 'generate_now' }]],
 };
+const modeKeyboard: InlineKeyboardMarkup = { inline_keyboard: [
+  [{ text: 'AI News Briefing', callback_data: 'mode:news' }],
+  [{ text: 'Document to Voice', callback_data: 'mode:document' }],
+] };
 const cleanText = (value?: string): string => value?.replace(/\s+/g, ' ').trim() ?? '';
 
 export class NewsroomBot {
@@ -196,16 +202,31 @@ export class NewsroomBot {
     }
     const chatId = String(chatIdValue);
     const offset = update.update_id + 1;
+    const documentContext: DocumentTelegramContext | undefined = update.message?.from
+      ? { chatId, userId: String(update.message.from.id), chatType: update.message.chat.type ?? 'private', messageId: update.message.message_id }
+      : update.callback_query?.from && update.callback_query.message
+        ? { chatId, userId: String(update.callback_query.from.id), chatType: update.callback_query.message.chat.type ?? 'private', messageId: update.callback_query.message.message_id }
+        : undefined;
 
     if (update.callback_query) {
-      await this.handleCallback(chatId, update.callback_query.id, update.callback_query.data, offset);
+      await this.handleCallback(chatId, update.callback_query.id, update.callback_query.data, offset, documentContext);
       return;
     }
 
     const text = cleanText(update.message?.text);
     if (text === '/start' || text.startsWith('/start ')) {
+      if (this.options.documentVoice) {
+        await this.options.store.setOffset(offset);
+        await this.options.telegram.sendMessage(chatId, 'What would you like to create?', modeKeyboard);
+        return;
+      }
       await this.options.store.updateChatAndOffset(chatId, { step: 'topics' }, offset);
       await this.options.telegram.sendMessage(chatId, WELCOME_MESSAGE, topicKeyboard());
+      return;
+    }
+    if (update.message?.document && documentContext && this.options.documentVoice?.isActive(documentContext.userId)) {
+      await this.options.store.setOffset(offset);
+      await this.options.documentVoice.handleDocument(documentContext, update.message.document);
       return;
     }
     const chat = (await this.options.store.snapshot()).chats[chatId];
@@ -238,8 +259,26 @@ export class NewsroomBot {
     await this.options.telegram.sendMessage(chatId, message, keyboard);
   }
 
-  private async handleCallback(chatId: string, callbackId: string, data: string | undefined, offset: number): Promise<void> {
+  private async handleCallback(chatId: string, callbackId: string, data: string | undefined, offset: number, documentContext?: DocumentTelegramContext): Promise<void> {
     await this.options.telegram.answerCallbackQuery(callbackId);
+    if (data === 'mode:news' && this.options.documentVoice) {
+      await this.options.store.updateChatAndOffset(chatId, { step: 'topics' }, offset);
+      await this.options.telegram.sendMessage(chatId, WELCOME_MESSAGE, topicKeyboard());
+      return;
+    }
+    if (data === 'mode:document' && this.options.documentVoice) {
+      await this.options.store.setOffset(offset);
+      if (!documentContext || documentContext.chatType !== 'private') {
+        await this.options.telegram.sendMessage(chatId, 'Document to Voice is available only in a private chat with this bot.');
+        return;
+      }
+      await this.options.documentVoice.begin(documentContext);
+      return;
+    }
+    if (data?.startsWith('dv:') && this.options.documentVoice && documentContext) {
+      await this.options.store.setOffset(offset);
+      if (await this.options.documentVoice.handleCallback(documentContext, data)) return;
+    }
     if (data === 'generate_now' && this.generating.has(chatId)) {
       await this.options.store.setOffset(offset);
       await this.options.telegram.sendMessage(chatId, BOT_COPY.alreadyGenerating);

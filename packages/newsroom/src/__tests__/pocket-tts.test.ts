@@ -1,9 +1,34 @@
 import { describe, expect, it, vi } from 'vitest';
-import { FallbackVoiceSynthesizer, PocketTtsClient } from '../pocket-tts.js';
+import { FallbackVoiceSynthesizer, PocketTtsClient, validateLoopbackTtsBaseUrl } from '../pocket-tts.js';
 
 const mp3 = new Uint8Array([0x49, 0x44, 0x33, 0x04]);
 
 describe('PocketTtsClient', () => {
+  it.each(['http://127.0.0.1:8001', 'http://localhost:80', 'http://[::1]:9000'])('accepts an explicit loopback document endpoint: %s', (url) => {
+    expect(validateLoopbackTtsBaseUrl(url)).toBe(url);
+  });
+
+  it.each(['https://127.0.0.1:8001', 'http://127.0.0.1', 'http://192.168.1.2:8001', 'http://10.0.0.2:8001', 'http://8.8.8.8:8001', 'http://user:pass@localhost:8001', 'not-a-url'])('rejects a non-loopback document endpoint: %s', (url) => {
+    expect(() => validateLoopbackTtsBaseUrl(url)).toThrow('DOCUMENT_TTS_BASE_URL_INVALID');
+  });
+
+  it('rejects redirects for a loopback-only document client', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(null, { status: 302, headers: { location: 'http://example.com' } }));
+    const client = new PocketTtsClient({ baseUrl: 'http://127.0.0.1:8001', fetch, loopbackOnly: true });
+    await expect(client.synthesize('alba', 'Secret')).rejects.toThrow();
+    expect(fetch).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ redirect: 'error' }));
+  });
+  it('combines a caller abort signal with the request timeout signal', async () => {
+    const caller = new AbortController();
+    const fetch = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      caller.abort();
+      expect(init?.signal?.aborted).toBe(true);
+      throw new DOMException('Aborted', 'AbortError');
+    });
+    const client = new PocketTtsClient({ baseUrl: 'https://tts.test', fetch });
+    await expect(client.synthesize('alba', 'Hello', { signal: caller.signal })).rejects.toThrow('Pocket TTS request failed');
+  });
   it('posts authenticated JSON and returns an MP3', async () => {
     const fetch = vi.fn().mockImplementation(async () => new Response(mp3, { headers: { 'content-type': 'audio/mpeg' } }));
     const client = new PocketTtsClient({ baseUrl: 'https://tts.test/', apiKey: 'secret', fetch });
@@ -35,6 +60,17 @@ describe('PocketTtsClient', () => {
 });
 
 describe('FallbackVoiceSynthesizer', () => {
+  it('passes the caller abort signal through and never falls back after cancellation', async () => {
+    const controller = new AbortController();
+    const primary = { synthesize: vi.fn(async (_voice: string, _text: string, options?: { signal?: AbortSignal }) => {
+      expect(options?.signal).toBe(controller.signal);
+      throw new DOMException('Aborted', 'AbortError');
+    }) };
+    const fallback = { synthesize: vi.fn() };
+    controller.abort();
+    await expect(new FallbackVoiceSynthesizer({ primary, fallback }).synthesize('ignored', 'Briefing', { signal: controller.signal })).rejects.toThrow();
+    expect(fallback.synthesize).not.toHaveBeenCalled();
+  });
   it('uses Pocket first and skips ElevenLabs on success', async () => {
     const primary = { synthesize: vi.fn().mockResolvedValue(mp3) };
     const fallback = { synthesize: vi.fn() };

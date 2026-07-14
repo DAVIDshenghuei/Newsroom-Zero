@@ -34,6 +34,8 @@ export * from './bot-copy.js';
 export * from './bot.js';
 export * from './languages.js';
 export * from './search-policy.js';
+export * from './document-voice.js';
+export * from './document-telegram.js';
 
 // ─── VerifiedClaim ────────────────────────────────────────────
 

@@ -32,7 +32,7 @@ export const EpisodeMetadataSchema = z.object({
 export type EpisodeMetadata = z.infer<typeof EpisodeMetadataSchema>;
 
 export interface VoiceSynthesizer {
-  synthesize(voiceId: string, text: string, options?: { language?: string }): Promise<Uint8Array>;
+  synthesize(voiceId: string, text: string, options?: { language?: string; signal?: AbortSignal }): Promise<Uint8Array>;
 }
 
 export interface VoiceEpisodeInput {

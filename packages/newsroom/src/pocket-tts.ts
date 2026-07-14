@@ -6,7 +6,7 @@ export interface VoiceSynthesisOutcome { audio: Uint8Array; provider: AudioProvi
 export type PocketTtsFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export interface SynthesizeOutcomeFunction {
-  synthesizeWithOutcome(text: string, options?: { language?: string; voiceId?: string; provider?: LocalAudioProvider }): Promise<VoiceSynthesisOutcome>;
+  synthesizeWithOutcome(text: string, options?: { language?: string; voiceId?: string; provider?: LocalAudioProvider; signal?: AbortSignal }): Promise<VoiceSynthesisOutcome>;
 }
 
 export interface PocketTtsOptions {
@@ -15,6 +15,20 @@ export interface PocketTtsOptions {
   fetch?: PocketTtsFetch;
   language?: string;
   timeoutMs?: number;
+  loopbackOnly?: boolean;
+}
+
+export function validateLoopbackTtsBaseUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    const authority = /^http:\/\/([^/?#]+)\/?$/.exec(value)?.[1];
+    const portText = authority?.match(/:(\d+)$/)?.[1];
+    const port = Number(portText);
+    if (url.protocol !== 'http:' || !authority || !portText || !Number.isInteger(port) || port < 1 || port > 65_535
+      || url.username || url.password || (url.pathname !== '/' && url.pathname !== '') || url.search || url.hash
+      || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname.toLowerCase())) throw new Error();
+    return value.replace(/\/$/, '');
+  } catch { throw new Error('DOCUMENT_TTS_BASE_URL_INVALID'); }
 }
 
 const isMp3 = (bytes: Uint8Array): boolean =>
@@ -26,21 +40,24 @@ export class PocketTtsClient implements VoiceSynthesizer {
   private readonly fetch: PocketTtsFetch;
   constructor(private readonly options: PocketTtsOptions) {
     if (!options.baseUrl.trim()) throw new Error('POCKET_TTS_BASE_URL is required');
-    this.baseUrl = options.baseUrl.replace(/\/$/, '');
+    this.baseUrl = options.loopbackOnly ? validateLoopbackTtsBaseUrl(options.baseUrl) : options.baseUrl.replace(/\/$/, '');
     this.fetch = options.fetch ?? globalThis.fetch;
   }
 
-  async synthesize(voiceId: string, text: string, callOptions?: { language?: string }): Promise<Uint8Array> {
+  async synthesize(voiceId: string, text: string, callOptions?: { language?: string; signal?: AbortSignal }): Promise<Uint8Array> {
     let response: Response;
     try {
       response = await this.fetch(`${this.baseUrl}/v1/audio/speech`, {
         method: 'POST',
+        ...(this.options.loopbackOnly ? { redirect: 'error' as const } : {}),
         headers: {
           'Content-Type': 'application/json',
           ...(this.options.apiKey ? { Authorization: `Bearer ${this.options.apiKey}` } : {}),
         },
         body: JSON.stringify({ text, voice: voiceId || 'alba', language: callOptions?.language ?? this.options.language ?? 'english', format: 'mp3' }),
-        signal: AbortSignal.timeout(this.options.timeoutMs ?? 180_000),
+        signal: callOptions?.signal
+          ? AbortSignal.any([callOptions.signal, AbortSignal.timeout(this.options.timeoutMs ?? 180_000)])
+          : AbortSignal.timeout(this.options.timeoutMs ?? 180_000),
       });
     } catch {
       throw new Error('Pocket TTS request failed');
@@ -64,22 +81,28 @@ export interface FallbackVoiceOptions {
 
 export class FallbackVoiceSynthesizer implements VoiceSynthesizer {
   constructor(private readonly options: FallbackVoiceOptions) {}
-  /** VoiceSynthesizer interface: ignores voiceId (IDs are in constructor options). */
-  async synthesize(_voiceId: string, text: string): Promise<Uint8Array> {
-    const result = await this.synthesizeWithOutcome(text);
+  /** VoiceSynthesizer interface: voice IDs remain configured while call cancellation propagates. */
+  async synthesize(_voiceId: string, text: string, callOptions?: { language?: string; signal?: AbortSignal }): Promise<Uint8Array> {
+    const result = await this.synthesizeWithOutcome(text, callOptions);
     return result.audio;
   }
   /** Returns enriched outcome with provider and fallbackUsed metadata. */
-  async synthesizeWithOutcome(text: string, callOptions?: { language?: string; voiceId?: string; provider?: LocalAudioProvider }): Promise<VoiceSynthesisOutcome> {
+  async synthesizeWithOutcome(text: string, callOptions?: { language?: string; voiceId?: string; provider?: LocalAudioProvider; signal?: AbortSignal }): Promise<VoiceSynthesisOutcome> {
     try {
+      const primaryOptions = callOptions?.language || callOptions?.signal
+        ? { language: callOptions?.language, signal: callOptions?.signal } : undefined;
       return {
-        audio: await this.options.primary.synthesize(callOptions?.voiceId ?? this.options.primaryVoiceId ?? 'alba', text, callOptions?.language ? { language: callOptions.language } : undefined),
+        audio: await this.options.primary.synthesize(callOptions?.voiceId ?? this.options.primaryVoiceId ?? 'alba', text, primaryOptions),
         provider: callOptions?.provider ?? 'pocket-tts', fallbackUsed: false,
       };
     } catch (primaryError) {
+      if (callOptions?.signal?.aborted) throw primaryError;
       if (!this.options.fallback) throw primaryError;
+      const audio = callOptions?.signal
+        ? await this.options.fallback.synthesize(this.options.fallbackVoiceId ?? '', text, { signal: callOptions.signal })
+        : await this.options.fallback.synthesize(this.options.fallbackVoiceId ?? '', text);
       return {
-        audio: await this.options.fallback.synthesize(this.options.fallbackVoiceId ?? '', text),
+        audio,
         provider: 'elevenlabs', fallbackUsed: true,
       };
     }

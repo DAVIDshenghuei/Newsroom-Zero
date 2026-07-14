@@ -10,6 +10,36 @@ const results: LinkupSearchResult[] = [{
 }];
 
 describe('topic-aware bot workflow', () => {
+  it('offers both creation modes and routes Document to Voice without entering news research', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'newsroom-bot-'));
+    const store = new BotStateStore(join(directory, 'state.json'));
+    const telegram = { sendMessage: vi.fn().mockResolvedValue(1), answerCallbackQuery: vi.fn(), publish: vi.fn() };
+    const documentVoice = { begin: vi.fn(), isActive: vi.fn().mockReturnValue(true), handleDocument: vi.fn(), handleCallback: vi.fn().mockResolvedValue(true) };
+    const generate = vi.fn();
+    const bot = new NewsroomBot({ store, telegram, generate, documentVoice });
+    await bot.handleUpdate({ update_id: 1, message: { chat: { id: 42 }, text: '/start' } });
+    expect(telegram.sendMessage).toHaveBeenLastCalledWith('42', 'What would you like to create?', {
+      inline_keyboard: [[{ text: 'AI News Briefing', callback_data: 'mode:news' }], [{ text: 'Document to Voice', callback_data: 'mode:document' }]],
+    });
+    await bot.handleUpdate({ update_id: 2, callback_query: { id: 'cb', data: 'mode:document', from: { id: 7 }, message: { message_id: 8, chat: { id: 42, type: 'private' } } } });
+    expect(documentVoice.begin).toHaveBeenCalledWith({ chatId: '42', userId: '7', chatType: 'private', messageId: 8 });
+    await bot.handleUpdate({ update_id: 3, message: { message_id: 9, from: { id: 7 }, chat: { id: 42, type: 'private' }, document: { file_id: 'f', file_name: 'x.txt' } } });
+    expect(documentVoice.handleDocument).toHaveBeenCalled();
+    expect(generate).not.toHaveBeenCalled();
+  });
+  it('refuses Document to Voice in group chats', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'newsroom-bot-'));
+    const store = new BotStateStore(join(directory, 'state.json'));
+    const telegram = { sendMessage: vi.fn().mockResolvedValue(1), answerCallbackQuery: vi.fn(), publish: vi.fn() };
+    const documentVoice = { begin: vi.fn(), isActive: vi.fn(), handleDocument: vi.fn(), handleCallback: vi.fn() };
+    const bot = new NewsroomBot({ store, telegram, generate: vi.fn(), documentVoice });
+    await bot.handleUpdate({
+      update_id: 1,
+      callback_query: { id: 'group', data: 'mode:document', from: { id: 7 }, message: { message_id: 9, chat: { id: -100, type: 'group' } } },
+    });
+    expect(documentVoice.begin).not.toHaveBeenCalled();
+    expect(telegram.sendMessage).toHaveBeenCalledWith('-100', expect.stringContaining('private chat'));
+  });
   it.each([
     ['Past 24 Hours', '2026-07-10T12:34:56.000Z'],
     ['Past 3 Days', '2026-07-08T12:34:56.000Z'],
