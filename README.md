@@ -165,11 +165,15 @@ POCKET_TTS_SERVICE_API_KEY=
 POCKET_TTS_VOICE=
 POCKET_TTS_LANGUAGE=
 POCKET_TTS_TIMEOUT_MS=
+DOCUMENT_VOICE_MAX_DAILY_JOBS_PER_OWNER=20
+DOCUMENT_VOICE_MAX_STORED_JOBS_PER_OWNER=20
 ELEVENLABS_API_KEY=
 ELEVENLABS_VOICE_ID=
 ```
 
 Normally leave `CODEX_CLI_ENTRYPOINT` blank so the bot runs `codex` from `PATH`. The current verified analysis default is `CODEX_ANALYSIS_MODEL=gpt-5.6-sol`. When Pocket authentication is enabled, `POCKET_TTS_API_KEY` and `POCKET_TTS_SERVICE_API_KEY` must contain the same shared secret.
+
+The example raises local Document Voice quotas to 20 jobs per owner per rolling 24 hours and 20 stored jobs per owner. In production, omitting `DOCUMENT_VOICE_MAX_DAILY_JOBS_PER_OWNER` and `DOCUMENT_VOICE_MAX_STORED_JOBS_PER_OWNER` keeps the cloud-safe defaults of 3 and 5. Configured values must be positive safe integers; invalid values stop bot startup.
 
 ### Run locally
 
@@ -204,7 +208,7 @@ pnpm build
 pnpm pocket:test
 ```
 
-The verified TypeScript baseline is **256 tests passing**. The local Pocket/Kokoro service has a separate **9-test** Python suite.
+The verified TypeScript baseline is **274 tests passing**. The local Pocket/Kokoro service has a separate **9-test** Python suite.
 
 The TypeScript suite covers schemas, policy composition, domain restrictions, hostname boundaries, original-only relevance, publication windows, ranking, zero-result exits, Codex analysis, the Fact Gate, speech routing, fallback behavior, Telegram delivery, document extraction and chunking, privacy-safe events, audio validation, protected episode artifacts, brand claims, and web repositories. The Python suite covers HTTP validation, authentication, lazy engine reuse, Kokoro chunk concatenation, safe errors, and MP3 conversion.
 

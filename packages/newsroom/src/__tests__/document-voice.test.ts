@@ -5,17 +5,41 @@ import { spawnSync } from 'node:child_process';
 import { describe, expect, it, vi } from 'vitest';
 import {
   DOCUMENT_JOB_TIMEOUT_MS,
+  DOCUMENT_MAX_DAILY_JOBS_PER_OWNER,
+  DOCUMENT_MAX_STORED_JOBS_PER_OWNER,
   DocumentVoiceJobSchema,
   DocumentVoiceRepository,
   DocumentVoiceService,
   chunkDocumentText,
   extractDocumentText,
   mergeAndValidateDocumentAudio,
+  parseDocumentVoiceQuotaConfig,
   runDocumentAudioProcess,
   type DocumentVoiceEvent,
 } from '../document-voice.js';
 
 describe('Document Voice Release A core', () => {
+  it('parses cloud-safe Document Voice quota defaults and configured limits', () => {
+    expect(parseDocumentVoiceQuotaConfig({})).toEqual({
+      maxDailyJobsPerOwner: DOCUMENT_MAX_DAILY_JOBS_PER_OWNER,
+      maxStoredJobsPerOwner: DOCUMENT_MAX_STORED_JOBS_PER_OWNER,
+    });
+    expect(parseDocumentVoiceQuotaConfig({
+      DOCUMENT_VOICE_MAX_DAILY_JOBS_PER_OWNER: '20',
+      DOCUMENT_VOICE_MAX_STORED_JOBS_PER_OWNER: '20',
+    })).toEqual({ maxDailyJobsPerOwner: 20, maxStoredJobsPerOwner: 20 });
+  });
+
+  it.each(['0', '-1', '1.5', 'many', '1e2', '+20', ' 20 ', String(Number.MAX_SAFE_INTEGER + 1)])(
+    'rejects invalid Document Voice quota configuration %s',
+    (value) => {
+      expect(() => parseDocumentVoiceQuotaConfig({ DOCUMENT_VOICE_MAX_DAILY_JOBS_PER_OWNER: value }))
+        .toThrow('DOCUMENT_VOICE_MAX_DAILY_JOBS_PER_OWNER must be a finite positive safe integer');
+      expect(() => parseDocumentVoiceQuotaConfig({ DOCUMENT_VOICE_MAX_STORED_JOBS_PER_OWNER: value }))
+        .toThrow('DOCUMENT_VOICE_MAX_STORED_JOBS_PER_OWNER must be a finite positive safe integer');
+    },
+  );
+
   it('uses a 45-minute default whole-job deadline', () => {
     expect(DOCUMENT_JOB_TIMEOUT_MS).toBe(45 * 60_000);
   });
@@ -203,7 +227,7 @@ describe('Document Voice Release A core', () => {
     });
     await service.generate(job.id, 'english');
     const after = await Promise.all(paths.map((path) => readFile(path)));
-    expect(after).toEqual(before);
+    expect(after.every((value, index) => value.equals(before[index]))).toBe(true);
   });
 
   it.each([

@@ -14,7 +14,7 @@ describe('topic-aware bot workflow', () => {
     const directory = await mkdtemp(join(tmpdir(), 'newsroom-bot-'));
     const store = new BotStateStore(join(directory, 'state.json'));
     const telegram = { sendMessage: vi.fn().mockResolvedValue(1), answerCallbackQuery: vi.fn(), publish: vi.fn() };
-    const documentVoice = { begin: vi.fn(), isActive: vi.fn().mockReturnValue(true), handleDocument: vi.fn(), handleCallback: vi.fn().mockResolvedValue(true) };
+    const documentVoice = { begin: vi.fn(), isActive: vi.fn().mockReturnValue(true), handleDocument: vi.fn(), handleText: vi.fn(), handleCallback: vi.fn().mockResolvedValue(true) };
     const generate = vi.fn();
     const bot = new NewsroomBot({ store, telegram, generate, documentVoice });
     await bot.handleUpdate({ update_id: 1, message: { chat: { id: 42 }, text: '/start' } });
@@ -25,13 +25,17 @@ describe('topic-aware bot workflow', () => {
     expect(documentVoice.begin).toHaveBeenCalledWith({ chatId: '42', userId: '7', chatType: 'private', messageId: 8 });
     await bot.handleUpdate({ update_id: 3, message: { message_id: 9, from: { id: 7 }, chat: { id: 42, type: 'private' }, document: { file_id: 'f', file_name: 'x.txt' } } });
     expect(documentVoice.handleDocument).toHaveBeenCalled();
+    await bot.handleUpdate({ update_id: 4, message: { message_id: 10, from: { id: 7 }, chat: { id: 42, type: 'private' }, text: 'Pasted exact words.' } });
+    expect(documentVoice.handleText).toHaveBeenCalledWith({ chatId: '42', userId: '7', chatType: 'private', messageId: 10 }, 'Pasted exact words.');
+    await bot.handleUpdate({ update_id: 5, message: { message_id: 11, from: { id: 7 }, chat: { id: 42, type: 'private' }, text: '/start' } });
+    expect(documentVoice.handleText).toHaveBeenCalledTimes(1);
     expect(generate).not.toHaveBeenCalled();
   });
   it('refuses Document to Voice in group chats', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'newsroom-bot-'));
     const store = new BotStateStore(join(directory, 'state.json'));
     const telegram = { sendMessage: vi.fn().mockResolvedValue(1), answerCallbackQuery: vi.fn(), publish: vi.fn() };
-    const documentVoice = { begin: vi.fn(), isActive: vi.fn(), handleDocument: vi.fn(), handleCallback: vi.fn() };
+    const documentVoice = { begin: vi.fn(), isActive: vi.fn(), handleDocument: vi.fn(), handleText: vi.fn(), handleCallback: vi.fn() };
     const bot = new NewsroomBot({ store, telegram, generate: vi.fn(), documentVoice });
     await bot.handleUpdate({
       update_id: 1,

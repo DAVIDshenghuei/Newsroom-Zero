@@ -54,7 +54,9 @@ export function verifiedQuoteText(markdown: string): string {
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
     .replace(/<[^>]+>/g, '')
-    .replace(/[*_`~]/g, '');
+    .replace(/[*_`~]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 export function buildAnalysisPrompt(input: AnalysisInput): string {
   const language = getOutputLanguage(input.preferences.outputLanguage ?? 'english');
@@ -170,7 +172,8 @@ export function runAnalysisFactGate(value: unknown, stories: RankedStory[], evid
           continue;
         }
         const original = promptedOriginals.get(storyId);
-        if (!original || !original.includes(quote)) {
+        const normalizedQuote = verifiedQuoteText(quote);
+        if (!original || !normalizedQuote || !original.includes(normalizedQuote)) {
           reasons.push(`${item.label}: supporting quote not found in verified source ${storyId}`);
         }
       }

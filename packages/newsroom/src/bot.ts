@@ -165,7 +165,7 @@ export interface NewsroomBotOptions {
   store: BotStateStore;
   telegram: BotTelegram;
   generate: (chatId: string, preferences: ResearchPreferences) => Promise<void>;
-  documentVoice?: Pick<DocumentVoiceTelegramFlow, 'begin' | 'isActive' | 'handleDocument' | 'handleCallback'>;
+  documentVoice?: Pick<DocumentVoiceTelegramFlow, 'begin' | 'isActive' | 'handleDocument' | 'handleText' | 'handleCallback'>;
 }
 
 const rangeKeyboard: InlineKeyboardMarkup = {
@@ -228,6 +228,12 @@ export class NewsroomBot {
     if (update.message?.document && documentContext && this.options.documentVoice?.isActive(documentContext.userId)) {
       await this.options.store.setOffset(offset);
       await this.options.documentVoice.handleDocument(documentContext, update.message.document);
+      return;
+    }
+    if (update.message?.text && !update.message.text.startsWith('/') && documentContext?.chatType === 'private'
+      && this.options.documentVoice?.isActive(documentContext.userId)) {
+      await this.options.store.setOffset(offset);
+      await this.options.documentVoice.handleText(documentContext, update.message.text);
       return;
     }
     const chat = (await this.options.store.snapshot()).chats[chatId];

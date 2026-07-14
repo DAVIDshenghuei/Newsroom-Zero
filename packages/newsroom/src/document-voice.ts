@@ -15,6 +15,22 @@ export const DOCUMENT_KOKORO_MAX_CHUNK_CHARACTERS = 450;
 export const DOCUMENT_JOB_TIMEOUT_MS = 45 * 60_000;
 export const DOCUMENT_MAX_DAILY_JOBS_PER_OWNER = 3;
 export const DOCUMENT_MAX_STORED_JOBS_PER_OWNER = 5;
+export interface DocumentVoiceQuotaConfig {
+  maxDailyJobsPerOwner: number;
+  maxStoredJobsPerOwner: number;
+}
+const parsePositiveSafeInteger = (name: string, value: string | undefined, fallback: number): number => {
+  if (value === undefined) return fallback;
+  const parsed = Number(value);
+  if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(parsed)) {
+    throw new Error(`${name} must be a finite positive safe integer`);
+  }
+  return parsed;
+};
+export const parseDocumentVoiceQuotaConfig = (environment: Readonly<Record<string, string | undefined>>): DocumentVoiceQuotaConfig => ({
+  maxDailyJobsPerOwner: parsePositiveSafeInteger('DOCUMENT_VOICE_MAX_DAILY_JOBS_PER_OWNER', environment.DOCUMENT_VOICE_MAX_DAILY_JOBS_PER_OWNER, DOCUMENT_MAX_DAILY_JOBS_PER_OWNER),
+  maxStoredJobsPerOwner: parsePositiveSafeInteger('DOCUMENT_VOICE_MAX_STORED_JOBS_PER_OWNER', environment.DOCUMENT_VOICE_MAX_STORED_JOBS_PER_OWNER, DOCUMENT_MAX_STORED_JOBS_PER_OWNER),
+});
 export const DOCUMENT_MAX_TOTAL_STORAGE_BYTES = 50_000_000;
 
 export const DocumentVoiceStatus = z.enum([
@@ -114,15 +130,16 @@ export class DocumentVoiceRepository {
   private readonly ready: Promise<void>;
   private readonly now: () => Date;
   private readonly emitEvent: (event: DocumentVoiceEvent) => void | Promise<void>;
-  private readonly maxDailyJobsPerOwner: number;
-  private readonly maxStoredJobsPerOwner: number;
+  readonly limits: Readonly<DocumentVoiceQuotaConfig>;
   private readonly maxTotalStorageBytes: number;
   constructor(options: DocumentVoiceRepositoryOptions) {
     this.root = resolve(options.root);
     this.now = options.now ?? (() => new Date());
     this.emitEvent = options.emit ?? (() => undefined);
-    this.maxDailyJobsPerOwner = options.maxDailyJobsPerOwner ?? DOCUMENT_MAX_DAILY_JOBS_PER_OWNER;
-    this.maxStoredJobsPerOwner = options.maxStoredJobsPerOwner ?? DOCUMENT_MAX_STORED_JOBS_PER_OWNER;
+    this.limits = Object.freeze({
+      maxDailyJobsPerOwner: options.maxDailyJobsPerOwner ?? DOCUMENT_MAX_DAILY_JOBS_PER_OWNER,
+      maxStoredJobsPerOwner: options.maxStoredJobsPerOwner ?? DOCUMENT_MAX_STORED_JOBS_PER_OWNER,
+    });
     this.maxTotalStorageBytes = options.maxTotalStorageBytes ?? DOCUMENT_MAX_TOTAL_STORAGE_BYTES;
     this.ready = this.initializeRoot();
   }
@@ -173,9 +190,9 @@ export class DocumentVoiceRepository {
     const ownerJobs = jobs.filter((job) => job.owner.subject === input.ownerSubject);
     const active = ownerJobs.some((job) => !['delivered', 'failed', 'cancelled', 'expired'].includes(job.status));
     if (active) throw new DocumentVoiceError('ACTIVE_JOB_EXISTS');
-    if (ownerJobs.length >= this.maxStoredJobsPerOwner) throw new DocumentVoiceError('STORED_JOB_QUOTA_EXCEEDED');
+    if (ownerJobs.length >= this.limits.maxStoredJobsPerOwner) throw new DocumentVoiceError('STORED_JOB_QUOTA_EXCEEDED');
     const dailyBoundary = this.now().getTime() - 86_400_000;
-    if (ownerJobs.filter((job) => Date.parse(job.createdAt) >= dailyBoundary).length >= this.maxDailyJobsPerOwner) throw new DocumentVoiceError('DAILY_QUOTA_EXCEEDED');
+    if (ownerJobs.filter((job) => Date.parse(job.createdAt) >= dailyBoundary).length >= this.limits.maxDailyJobsPerOwner) throw new DocumentVoiceError('DAILY_QUOTA_EXCEEDED');
     if (jobs.reduce((sum, job) => sum + job.source.sizeBytes, 0) + input.bytes.byteLength > this.maxTotalStorageBytes) throw new DocumentVoiceError('STORAGE_QUOTA_EXCEEDED');
     const extraction = extractDocumentText(input);
     const now = this.now();

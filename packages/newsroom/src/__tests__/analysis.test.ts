@@ -143,6 +143,19 @@ describe('analysis fact gate and script', () => {
     expect(script.segments.filter((segment) => segment.kind === 'factual').every((segment) => segment.citations.length > 0)).toBe(true);
   });
 
+  it('normalizes non-breaking whitespace and source markdown before exact quote verification', () => {
+    const quote = 'OpenAI structures prompts around a goal, context, output format, and boundaries. None are required.';
+    const nbspEvidence = [{
+      ...evidence[0],
+      original: { ...evidence[0].original, markdown: `${evidence[0].original.markdown}\nOpenAI structures prompts around a\u00a0*goal, context, output format, and boundaries*. None are required.` },
+    }];
+    const normalizedAnalysis = {
+      ...analysis,
+      storyBriefs: [{ ...analysis.storyBriefs[0], supportingQuotes: supported(quote) }],
+    };
+    expect(runAnalysisFactGate(normalizedAnalysis, stories, nbspEvidence, '2026-07-11T12:30:00.000Z').approved).toBe(true);
+  });
+
   it('blocks unknown source IDs and malformed missing citations', () => {
     const unknown = { ...analysis, crossStoryTrends: [{ text: 'Unsupported trend.', sourceStoryIds: ['unknown-story'], supportingQuotes: [{ storyId: 'unknown-story', quote: 'Unsupported trend.' }] }] };
     expect(runAnalysisFactGate(unknown, stories, evidence, '2026-07-11T12:30:00.000Z').approved).toBe(false);

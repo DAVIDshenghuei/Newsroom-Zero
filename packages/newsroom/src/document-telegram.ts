@@ -20,7 +20,7 @@ export interface DocumentTelegramContext {
   messageId?: number;
 }
 type TelegramDocument = NonNullable<NonNullable<TelegramUpdate['message']>['document']>;
-type Session = { chatId: string; userId: string; nonce: string; jobId?: string; language?: DocumentVoiceLanguage; actionMessageId?: number };
+type Session = { chatId: string; userId: string; nonce: string; jobId?: string; language?: DocumentVoiceLanguage; actionMessageId?: number; deliveryStatusMessageId?: number };
 export const TELEGRAM_DOCUMENT_AUDIO_MAX_BYTES = 45_000_000;
 export const DOCUMENT_QUEUE_MAX_JOBS = 5;
 export const DOCUMENT_PROGRESS_RETRY_DELAY_MS = 500;
@@ -188,8 +188,13 @@ export class DocumentVoiceTelegramFlow {
   async begin(context: DocumentTelegramContext): Promise<void> {
     if (context.chatType !== 'private') throw new DocumentVoiceError('PRIVATE_CHAT_REQUIRED');
     const existing = (await this.options.repository.list()).find((job) => job.owner.subject === context.userId && !['delivered', 'failed', 'cancelled', 'expired'].includes(job.status));
+    const previous = this.sessions.get(context.userId);
     const nonce = randomBytes(8).toString('hex');
-    const session: Session = { chatId: context.chatId, userId: context.userId, nonce, jobId: existing?.id, language: existing?.synthesis?.ttsLanguage };
+    const session: Session = {
+      chatId: context.chatId, userId: context.userId, nonce, jobId: existing?.id, language: existing?.synthesis?.ttsLanguage,
+      actionMessageId: previous && previous.jobId === existing?.id ? previous.actionMessageId : undefined,
+      deliveryStatusMessageId: previous && previous.jobId === existing?.id ? previous.deliveryStatusMessageId : undefined,
+    };
     this.sessions.set(context.userId, session);
     await this.options.repository.recordEvent('document_flow_started', { channel: 'telegram' });
     if (existing) {
@@ -198,11 +203,20 @@ export class DocumentVoiceTelegramFlow {
       if (['queued', 'generating'].includes(existing.status)) { text = 'Your document conversion is queued or generating. You can cancel it safely before delivery starts.'; controls = cancelKeyboard(nonce); }
       if (['generated', 'delivery_failed'].includes(existing.status)) { text = 'Your audio is ready. Retry Delivery will reuse it without generating again.'; controls = retryDeliveryKeyboard(nonce); }
       if (existing.status === 'delivery_unknown') { text = 'Audio delivery status is unknown. It will not be sent again automatically.'; controls = retryDeliveryKeyboard(nonce); }
-      if (existing.status === 'delivering') { text = 'Audio delivery has started and can no longer be safely cancelled.'; controls = { inline_keyboard: [] }; }
+      if (existing.status === 'delivering') {
+        text = 'Your audio is being sent now. Please wait—no action is needed.';
+        controls = { inline_keyboard: [] };
+        if (session.deliveryStatusMessageId !== undefined) {
+          await this.options.telegram.editMessage(context.chatId, session.deliveryStatusMessageId, text).catch(() => undefined);
+          return;
+        }
+        session.deliveryStatusMessageId = await this.options.telegram.sendMessage(context.chatId, text, controls);
+        return;
+      }
       session.actionMessageId = await this.options.telegram.sendMessage(context.chatId, text, controls);
       return;
     }
-    await this.options.telegram.sendMessage(context.chatId, 'Upload a TXT or Markdown document (maximum 5 MB and 10,000 extracted characters).');
+    await this.options.telegram.sendMessage(context.chatId, 'Paste text or upload a TXT or Markdown document (maximum 5 MB and 10,000 extracted characters).');
   }
 
   isActive(userId: string): boolean { return this.sessions.has(userId); }
@@ -223,7 +237,24 @@ export class DocumentVoiceTelegramFlow {
       session.jobId = job.id;
       const messageId = await this.options.telegram.sendMessage(context.chatId, this.extractionSummary(job), languageKeyboard(session.nonce));
       session.actionMessageId = messageId;
-    } catch (error) { await this.options.telegram.sendMessage(context.chatId, safeError(error)); }
+    } catch (error) { await this.options.telegram.sendMessage(context.chatId, safeError(error, this.options.repository.limits)); }
+  }
+
+  async handleText(context: DocumentTelegramContext, text: string): Promise<void> {
+    const session = this.authorizedSession(context);
+    if (!session) return;
+    try {
+      const job = await this.options.repository.create({
+        ownerSubject: context.userId,
+        name: 'pasted-text.txt',
+        mimeType: 'text/plain',
+        bytes: new TextEncoder().encode(text),
+      });
+      session.jobId = job.id;
+      session.actionMessageId = await this.options.telegram.sendMessage(
+        context.chatId, this.extractionSummary(job), languageKeyboard(session.nonce),
+      );
+    } catch (error) { await this.options.telegram.sendMessage(context.chatId, safeError(error, this.options.repository.limits)); }
   }
 
   async handleCallback(context: DocumentTelegramContext, data: string): Promise<boolean> {
@@ -348,7 +379,14 @@ export class DocumentVoiceTelegramFlow {
         if (current.status !== 'delivering' || current.delivery?.attemptId !== attemptId) throw new DocumentVoiceError('DELIVERY_STATUS_UNKNOWN');
         const delivered = DocumentVoiceJobSchema.parse({ ...current, status: 'delivered', delivery: { attemptId, telegramMessageId } });
         await this.options.repository.save(delivered);
-        await this.options.telegram.editMessage(chatId, progressId!, `Delivered ${delivered.synthesis?.totalChunks ?? 0} / ${delivered.synthesis?.totalChunks ?? 0} sections.`);
+        const deliveredText = 'Audio delivered successfully.';
+        const latestSession = this.sessions.get(task.ownerSubject);
+        if (latestSession?.jobId === task.jobId && latestSession.deliveryStatusMessageId !== undefined) {
+          await this.options.telegram.editMessage(chatId, latestSession.deliveryStatusMessageId, deliveredText).catch(() => undefined);
+        }
+        if (progressId !== undefined && progressId !== latestSession?.deliveryStatusMessageId) {
+          await this.options.telegram.editMessage(chatId, progressId, deliveredText).catch(() => undefined);
+        }
         await this.options.repository.recordEvent('audio_delivered', { channel: 'telegram', provider: delivered.synthesis?.provider ?? 'unknown' });
         this.sessions.delete(task.ownerSubject);
       } catch (error) {
@@ -390,12 +428,15 @@ const confirmation = (job: DocumentVoiceJob, language: DocumentVoiceLanguage): s
   `Voice language: ${languageLabels[language]}`, 'Transport: Telegram', 'Processing: Local', 'External fallback: Off', 'Translation: Off',
   'Retention target: 24 hours · Cleanup: startup and every 60 seconds while the local bot is online.',
 ].join('\n');
-const safeError = (error: unknown): string => {
+const safeError = (error: unknown, limits: Readonly<{ maxDailyJobsPerOwner: number; maxStoredJobsPerOwner: number }>): string => {
   const code = error instanceof DocumentVoiceError ? error.code : '';
   const messages: Record<string, string> = {
     UNSUPPORTED_FILE: 'This file type is not supported. Upload TXT or Markdown.', FILE_TOO_LARGE: 'This document is larger than the 5 MB limit.',
     TEXT_TOO_LONG: 'This document exceeds the 10,000-character limit.', NO_EXTRACTABLE_TEXT: 'No readable text was found.',
     INVALID_TEXT_ENCODING: 'This document is not valid UTF-8 text.', ACTIVE_JOB_EXISTS: 'You already have an active document conversion.',
+    DAILY_QUOTA_EXCEEDED: `You have reached the ${limits.maxDailyJobsPerOwner}-document limit for the last 24 hours. Try again later.`,
+    STORED_JOB_QUOTA_EXCEEDED: `You already have ${limits.maxStoredJobsPerOwner} stored document jobs. They are removed automatically within 24 hours.`,
+    STORAGE_QUOTA_EXCEEDED: 'Local document storage is full. Try again after automatic cleanup.',
   };
   return messages[code] ?? 'The document could not be processed safely.';
 };

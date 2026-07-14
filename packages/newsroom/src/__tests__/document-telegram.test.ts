@@ -2,7 +2,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { DocumentVoiceJobSchema, DocumentVoiceRepository, DocumentVoiceService, type DocumentVoiceEvent } from '../document-voice.js';
+import { DocumentVoiceError, DocumentVoiceJobSchema, DocumentVoiceRepository, DocumentVoiceService, type DocumentVoiceEvent } from '../document-voice.js';
 import { DOCUMENT_DELIVERY_TIMEOUT_MS, DOCUMENT_PROGRESS_RETRY_DELAY_MS, DOCUMENT_UNKNOWN_NOTIFICATION_TIMEOUT_MS, DocumentVoiceTelegramFlow, DocumentVoiceWorkQueue } from '../document-telegram.js';
 
 describe('Telegram Document to Voice tracer bullet', () => {
@@ -158,7 +158,7 @@ describe('Telegram Document to Voice tracer bullet', () => {
     const generateData = confirmationKeyboard.inline_keyboard[0][0].callback_data;
     await flow.handleCallback({ ...context, messageId: 21 }, generateData);
     await flow.waitForIdle();
-    expect(telegram.editMessage).toHaveBeenCalledWith('42', 22, expect.stringContaining('Delivered'));
+    expect(telegram.editMessage).toHaveBeenCalledWith('42', 22, 'Audio delivered successfully.');
     const deliveryCaption = telegram.sendPrivateAudio.mock.calls.at(-1)?.[3] as string;
     expect(deliveryCaption).toContain('Transport: Telegram');
     expect(deliveryCaption).toContain('Processing: Local');
@@ -168,6 +168,69 @@ describe('Telegram Document to Voice tracer bullet', () => {
     expect(deliveryCaption).not.toContain('Auto-delete: 24 hours');
     expect(deliveryCaption).not.toMatch(/\bPrivate\b/);
     expect(events.map(({ name }) => name)).toContain('audio_delivered');
+  });
+
+  it('accepts pasted private text through the same ready-for-language flow and safely rejects invalid text', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'document-telegram-text-'));
+    const repository = new DocumentVoiceRepository({ root });
+    const telegram = { sendMessage: vi.fn().mockResolvedValue(20), editMessage: vi.fn(), downloadFile: vi.fn(), sendPrivateAudio: vi.fn() };
+    const flow = new DocumentVoiceTelegramFlow({ repository, service: {} as DocumentVoiceService, telegram });
+    const context = { chatId: '42', userId: '7', chatType: 'private' as const };
+    await flow.begin(context);
+    expect(telegram.sendMessage).toHaveBeenLastCalledWith('42', expect.stringContaining('Paste text or upload a TXT or Markdown'));
+    await flow.handleText(context, 'Exact pasted words.');
+    const [job] = await repository.list();
+    expect(job).toMatchObject({ status: 'ready_for_language', source: { mimeType: 'text/plain' }, extraction: { characterCount: 19 } });
+    expect(telegram.sendMessage).toHaveBeenLastCalledWith('42', expect.stringContaining('Extracted 19 characters'), expect.objectContaining({ inline_keyboard: expect.any(Array) }));
+    const buttons = telegram.sendMessage.mock.calls.at(-1)?.[2].inline_keyboard.flat().map((button: { text: string }) => button.text);
+    expect(buttons).toEqual(['English', 'Traditional Chinese']);
+
+    const otherRoot = await mkdtemp(join(tmpdir(), 'document-telegram-text-invalid-'));
+    const otherRepository = new DocumentVoiceRepository({ root: otherRoot });
+    const otherTelegram = { ...telegram, sendMessage: vi.fn().mockResolvedValue(1) };
+    const other = new DocumentVoiceTelegramFlow({ repository: otherRepository, service: {} as DocumentVoiceService, telegram: otherTelegram });
+    await other.begin(context);
+    await other.handleText(context, '   \n');
+    expect(otherTelegram.sendMessage).toHaveBeenLastCalledWith('42', 'No readable text was found.');
+    await other.handleText(context, 'x'.repeat(10_001));
+    expect(otherTelegram.sendMessage).toHaveBeenLastCalledWith('42', 'This document exceeds the 10,000-character limit.');
+    await other.handleText({ ...context, chatType: 'group' }, 'must not ingest');
+    expect(await otherRepository.list()).toEqual([]);
+  });
+
+  it.each([
+    ['DAILY_QUOTA_EXCEEDED', 'You have reached the 3-document limit for the last 24 hours. Try again later.'],
+    ['STORED_JOB_QUOTA_EXCEEDED', 'You already have 5 stored document jobs. They are removed automatically within 24 hours.'],
+    ['STORAGE_QUOTA_EXCEEDED', 'Local document storage is full. Try again after automatic cleanup.'],
+  ])('maps pasted-text repository failure %s to exact safe copy', async (code, message) => {
+    const root = await mkdtemp(join(tmpdir(), 'document-telegram-text-quota-'));
+    const repository = new DocumentVoiceRepository({ root });
+    vi.spyOn(repository, 'create').mockRejectedValue(new DocumentVoiceError(code));
+    const telegram = { sendMessage: vi.fn().mockResolvedValue(20), editMessage: vi.fn(), downloadFile: vi.fn(), sendPrivateAudio: vi.fn() };
+    const flow = new DocumentVoiceTelegramFlow({ repository, service: {} as DocumentVoiceService, telegram });
+    const context = { chatId: '42', userId: '7', chatType: 'private' as const };
+
+    await flow.begin(context);
+    await flow.handleText(context, 'Exact pasted words.');
+
+    expect(telegram.sendMessage).toHaveBeenLastCalledWith('42', message);
+  });
+
+  it.each([
+    ['DAILY_QUOTA_EXCEEDED', 'You have reached the 20-document limit for the last 24 hours. Try again later.'],
+    ['STORED_JOB_QUOTA_EXCEEDED', 'You already have 20 stored document jobs. They are removed automatically within 24 hours.'],
+  ])('uses configured quota values in pasted-text failure copy for %s', async (code, message) => {
+    const root = await mkdtemp(join(tmpdir(), 'document-telegram-text-configured-quota-'));
+    const repository = new DocumentVoiceRepository({ root, maxDailyJobsPerOwner: 20, maxStoredJobsPerOwner: 20 });
+    vi.spyOn(repository, 'create').mockRejectedValue(new DocumentVoiceError(code));
+    const telegram = { sendMessage: vi.fn().mockResolvedValue(20), editMessage: vi.fn(), downloadFile: vi.fn(), sendPrivateAudio: vi.fn() };
+    const flow = new DocumentVoiceTelegramFlow({ repository, service: {} as DocumentVoiceService, telegram });
+    const context = { chatId: '42', userId: '7', chatType: 'private' as const };
+
+    await flow.begin(context);
+    await flow.handleText(context, 'Exact pasted words.');
+
+    expect(telegram.sendMessage).toHaveBeenLastCalledWith('42', message);
   });
 
   it('rejects uploads outside the alpha contract without downloading them', async () => {
@@ -213,11 +276,13 @@ describe('Telegram Document to Voice tracer bullet', () => {
     await vi.waitFor(() => expect((telegram.sendMessage.mock.calls.at(-1) as unknown[] | undefined)?.[2]).toBeDefined());
     const retryMarkup = (telegram.sendMessage.mock.calls.at(-1) as unknown[] | undefined)?.[2] as { inline_keyboard: Array<Array<{ callback_data: string }>> };
     await recovered.handleCallback({ chatId: '7', userId: '7', chatType: 'private', messageId: 14 }, retryMarkup.inline_keyboard[0][0].callback_data);
+    telegram.editMessage.mockRejectedValue(new Error('offline'));
     await recovered.waitForIdle();
     expect(synthesizeWithOutcome).toHaveBeenCalledTimes(1);
     expect(telegram.sendPrivateAudio).toHaveBeenCalledTimes(2);
     const [job] = await repository.list();
     expect(job.status).toBe('delivered');
+    expect(telegram.editMessage).toHaveBeenCalledWith('7', expect.any(Number), 'Audio delivered successfully.');
   });
 
   it('recovers persisted queued jobs in FIFO order with bounded refill', async () => {
@@ -336,6 +401,51 @@ describe('Telegram Document to Voice tracer bullet', () => {
     await flow.begin({ chatId: '7', userId: '7', chatType: 'private' });
     expect(telegram.sendMessage).toHaveBeenCalledWith('7', expect.stringContaining('queued or generating'), expect.objectContaining({ inline_keyboard: expect.any(Array) }));
     expect((await repository.list())).toHaveLength(1);
+  });
+
+  it('reuses one exact no-action delivering status message across repeated begin calls', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'document-delivering-reentry-'));
+    const repository = new DocumentVoiceRepository({ root });
+    const service = new DocumentVoiceService({ repository, synthesizer: { synthesizeWithOutcome: vi.fn() } });
+    const job = await repository.create({ ownerSubject: '7', name: 'x.txt', mimeType: 'text/plain', bytes: new TextEncoder().encode('Words.') });
+    const queued = await service.prepare(job.id, 'english');
+    await repository.save(DocumentVoiceJobSchema.parse({ ...queued, status: 'delivering', delivery: { attemptId: 'attempt-1' } }));
+    const telegram = { sendMessage: vi.fn().mockResolvedValue(20), editMessage: vi.fn().mockResolvedValue(20), downloadFile: vi.fn(), sendPrivateAudio: vi.fn() };
+    const flow = new DocumentVoiceTelegramFlow({ repository, service, telegram });
+    const context = { chatId: '7', userId: '7', chatType: 'private' as const };
+    await flow.begin(context);
+    await flow.begin(context);
+    expect(telegram.sendMessage).toHaveBeenCalledTimes(1);
+    expect(telegram.sendMessage).toHaveBeenCalledWith('7', 'Your audio is being sent now. Please wait—no action is needed.', { inline_keyboard: [] });
+    expect(telegram.editMessage).toHaveBeenCalledWith('7', 20, 'Your audio is being sent now. Please wait—no action is needed.');
+    telegram.editMessage.mockRejectedValueOnce(new Error('offline'));
+    await expect(flow.begin(context)).resolves.toBeUndefined();
+    expect(telegram.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reuse a language confirmation with stale controls as the delivering status', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'document-delivering-controls-'));
+    const repository = new DocumentVoiceRepository({ root });
+    const service = new DocumentVoiceService({ repository, synthesizer: { synthesizeWithOutcome: vi.fn() } });
+    let messageId = 10;
+    const telegram = { sendMessage: vi.fn(async () => messageId++), editMessage: vi.fn().mockResolvedValue(1), downloadFile: vi.fn().mockResolvedValue(new TextEncoder().encode('Words.')), sendPrivateAudio: vi.fn() };
+    const flow = new DocumentVoiceTelegramFlow({ repository, service, telegram });
+    const context = { chatId: '7', userId: '7', chatType: 'private' as const };
+    await flow.begin(context);
+    await flow.handleDocument(context, { file_id: 'f', file_name: 'x.txt', mime_type: 'text/plain' });
+    const languageMarkup = (telegram.sendMessage.mock.calls.at(-1) as unknown[])[2] as { inline_keyboard: Array<Array<{ callback_data: string }>> };
+    await flow.handleCallback({ ...context, messageId: 11 }, languageMarkup.inline_keyboard[0][0].callback_data);
+    const [job] = await repository.list();
+    const queued = await service.prepare(job.id, 'english');
+    await repository.save(DocumentVoiceJobSchema.parse({ ...queued, status: 'delivering', delivery: { attemptId: 'attempt-1' } }));
+
+    await flow.begin(context);
+    expect(telegram.sendMessage).toHaveBeenLastCalledWith('7', 'Your audio is being sent now. Please wait—no action is needed.', { inline_keyboard: [] });
+    expect(telegram.editMessage).not.toHaveBeenCalledWith('7', 12, expect.any(String));
+    const dedicatedId = messageId - 1;
+    await flow.begin(context);
+    expect(telegram.sendMessage).toHaveBeenCalledTimes(4);
+    expect(telegram.editMessage).toHaveBeenCalledWith('7', dedicatedId, 'Your audio is being sent now. Please wait—no action is needed.');
   });
 
   it.each(['get', 'delete'] as const)('fails closed when cancellation %s verification fails', async (failure) => {

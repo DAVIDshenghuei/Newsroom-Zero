@@ -6,7 +6,7 @@ import { LinkupClient } from './linkup.js';
 import { TelegramClient } from './telegram.js';
 import { DEFAULT_ELEVENLABS_VOICE_ID, type VoiceSynthesizer } from './voice.js';
 import { FallbackVoiceSynthesizer, PocketTtsClient } from './pocket-tts.js';
-import { DocumentVoiceRepository, DocumentVoiceService } from './document-voice.js';
+import { DocumentVoiceRepository, DocumentVoiceService, parseDocumentVoiceQuotaConfig } from './document-voice.js';
 import { DocumentVoiceTelegramFlow } from './document-telegram.js';
 import { NewsroomRunLedger } from './run-ledger.js';
 
@@ -17,6 +17,7 @@ const required = (name: string): string => {
 };
 
 async function main(): Promise<void> {
+  const documentVoiceQuotas = parseDocumentVoiceQuotaConfig(process.env);
   const telegram = new TelegramClient({ token: required('TELEGRAM_BOT_TOKEN') });
   const linkup = new LinkupClient({ apiKey: required('LINKUP_API_KEY') });
   const elevenlabsKey = process.env.ELEVENLABS_API_KEY;
@@ -53,6 +54,7 @@ async function main(): Promise<void> {
   catch { console.warn('[RunLedger] OPEN_FAILED'); }
   const documentRepository = new DocumentVoiceRepository({
     root: resolve(process.cwd(), 'artifacts/document-voice-jobs'),
+    ...documentVoiceQuotas,
     emit: (event) => { console.log(JSON.stringify({ type: 'document_voice_event', ...event })); },
   });
   let documentVoice: DocumentVoiceTelegramFlow | undefined;
