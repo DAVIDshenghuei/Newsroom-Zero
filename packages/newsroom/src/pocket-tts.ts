@@ -1,11 +1,12 @@
 import type { VoiceSynthesizer } from './voice.js';
 
-export type AudioProvider = 'pocket-tts' | 'elevenlabs';
+export type LocalAudioProvider = 'pocket-tts' | 'kokoro';
+export type AudioProvider = LocalAudioProvider | 'elevenlabs';
 export interface VoiceSynthesisOutcome { audio: Uint8Array; provider: AudioProvider; fallbackUsed: boolean }
 export type PocketTtsFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export interface SynthesizeOutcomeFunction {
-  synthesizeWithOutcome(text: string, options?: { language?: string; voiceId?: string }): Promise<VoiceSynthesisOutcome>;
+  synthesizeWithOutcome(text: string, options?: { language?: string; voiceId?: string; provider?: LocalAudioProvider }): Promise<VoiceSynthesisOutcome>;
 }
 
 export interface PocketTtsOptions {
@@ -69,11 +70,11 @@ export class FallbackVoiceSynthesizer implements VoiceSynthesizer {
     return result.audio;
   }
   /** Returns enriched outcome with provider and fallbackUsed metadata. */
-  async synthesizeWithOutcome(text: string, callOptions?: { language?: string; voiceId?: string }): Promise<VoiceSynthesisOutcome> {
+  async synthesizeWithOutcome(text: string, callOptions?: { language?: string; voiceId?: string; provider?: LocalAudioProvider }): Promise<VoiceSynthesisOutcome> {
     try {
       return {
         audio: await this.options.primary.synthesize(callOptions?.voiceId ?? this.options.primaryVoiceId ?? 'alba', text, callOptions?.language ? { language: callOptions.language } : undefined),
-        provider: 'pocket-tts', fallbackUsed: false,
+        provider: callOptions?.provider ?? 'pocket-tts', fallbackUsed: false,
       };
     } catch (primaryError) {
       if (!this.options.fallback) throw primaryError;

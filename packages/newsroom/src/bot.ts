@@ -440,14 +440,20 @@ export function createBriefingGenerator(options: GeneratorOptions) {
     if (preferences.deliveryMode === 'text_and_audio') {
       const withOutcome = options.synthesizer as (VoiceSynthesizer & Partial<SynthesizeOutcomeFunction>);
       if (withOutcome.synthesizeWithOutcome) {
-        try { outcome = await withOutcome.synthesizeWithOutcome(bulletin, { language: language.pocketLanguage, voiceId: language.pocketVoice }); }
+        try {
+          outcome = await withOutcome.synthesizeWithOutcome(bulletin, {
+            language: language.ttsLanguage,
+            voiceId: language.ttsVoice,
+            provider: language.ttsProvider,
+          });
+        }
         catch { /* both TTS providers failed — fall through to text-only publication */ }
       } else {
         try {
           const audio = await options.synthesizer.synthesize(
             options.voiceId ?? DEFAULT_ELEVENLABS_VOICE_ID,
             bulletin,
-            { language: language.pocketLanguage },
+            { language: language.ttsLanguage },
           );
           outcome = { audio, provider: 'elevenlabs', fallbackUsed: false };
         } catch { /* TTS failed — fall through to text-only publication */ }

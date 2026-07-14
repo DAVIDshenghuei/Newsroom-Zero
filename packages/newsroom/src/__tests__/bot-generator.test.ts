@@ -22,7 +22,7 @@ const validAnalysis = (storyId: string) => {
   };
 };
 
-const setup = async (analysisGenerator: AnalysisGenerator, ttsFails = false, voiceId?: string) => {
+const setup = async (analysisGenerator: AnalysisGenerator, ttsFails = false, voiceId?: string, withOutcome = false) => {
   const directory = await mkdtemp(join(tmpdir(), 'newsroom-generator-'));
   const search = vi.fn().mockResolvedValue([searchResult]);
   const fetch = vi.fn().mockResolvedValue('Published July 10, 2026\n# Verified article\nA detailed launch report with practical product information.');
@@ -35,14 +35,18 @@ const setup = async (analysisGenerator: AnalysisGenerator, ttsFails = false, voi
     : vi.fn().mockResolvedValue(Buffer.from('realistic-mp3-fixture'));
   const publish = vi.fn().mockResolvedValue(1);
   const sendMessage = vi.fn().mockResolvedValue(1);
+  const synthesizeWithOutcome = ttsFails
+    ? vi.fn().mockRejectedValue(new Error('all providers unavailable'))
+    : vi.fn().mockResolvedValue({ audio: Buffer.from('realistic-mp3-fixture'), provider: 'kokoro', fallbackUsed: false });
+  const synthesizer = withOutcome ? { synthesize, synthesizeWithOutcome } : { synthesize };
   const generate = createBriefingGenerator({
     linkup: { search, fetch, fetchDocument }, analysisGenerator,
-    synthesizer: { synthesize }, telegram: { publish, sendMessage },
+    synthesizer, telegram: { publish, sendMessage },
     artifactsDirectory: join(directory, 'artifacts'), episodesDirectory: join(directory, 'episodes'),
     voiceId,
     now: () => new Date('2026-07-11T12:00:00.000Z'),
   });
-  return { generate, directory, search, fetch, fetchDocument, synthesize, publish, sendMessage };
+  return { generate, directory, search, fetch, fetchDocument, synthesize, synthesizeWithOutcome, publish, sendMessage };
 };
 
 const seedEpisodeSentinels = async (directory: string) => {
@@ -199,6 +203,23 @@ describe('LLM personalized briefing generator', () => {
     expect(harness.publish).toHaveBeenCalledWith(expect.objectContaining({
       metadata: expect.objectContaining({ provider: 'elevenlabs', outputLanguage: 'spanish' }),
     }));
+  });
+
+  it('routes Traditional Chinese audio through Kokoro and records its provider metadata', async () => {
+    const analysisGenerator: AnalysisGenerator = { generate: vi.fn(async ({ stories }) => validAnalysis(stories[0].id)) };
+    const harness = await setup(analysisGenerator, false, undefined, true);
+    await harness.generate('42', { ...audioPrefs, outputLanguage: 'traditional_chinese' });
+    expect(harness.synthesizeWithOutcome).toHaveBeenCalledWith(expect.any(String), {
+      language: 'chinese_traditional', voiceId: 'zf_xiaoxiao', provider: 'kokoro',
+    });
+    expect(harness.publish).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ provider: 'kokoro', outputLanguage: 'traditional_chinese' }),
+    }));
+    const outcome = JSON.parse(await readFile(join(harness.directory, 'artifacts', 'audio-outcome.json'), 'utf8'));
+    expect(outcome).toMatchObject({
+      audioRequested: true, audioGenerated: true, provider: 'kokoro', fallbackUsed: false,
+      outputLanguage: 'traditional_chinese',
+    });
   });
 
   it('never voices or publishes when the LLM fails', async () => {

@@ -78,18 +78,18 @@ describe('topic-aware bot workflow', () => {
     expect(telegram.sendMessage).toHaveBeenLastCalledWith('42', 'Choose an output language:', expect.any(Object));
     const languageMarkup = telegram.sendMessage.mock.calls[3]?.[2];
     expect(languageMarkup.inline_keyboard.flat().map((button: { text: string }) => button.text)).toEqual([
-      'English', 'French', 'German', 'Spanish', 'Italian', 'Portuguese',
+      'English', 'French', 'German', 'Spanish', 'Italian', 'Portuguese', 'Traditional Chinese',
     ]);
-    await callback(5, 'language:french');
+    await callback(5, 'language:traditional_chinese');
     expect(telegram.sendMessage).toHaveBeenLastCalledWith('42', 'How would you like to receive your briefing?', expect.any(Object));
     await callback(6, 'delivery:text_and_audio');
 
     expect(telegram.sendMessage).toHaveBeenLastCalledWith('42', expect.stringContaining(
       'Topics: AI Agents\nAnalysis Angles: Product Strategy\nNews Range: Past 7 Days',
     ), expect.any(Object));
-    expect(telegram.sendMessage.mock.calls.at(-1)?.[1]).toContain('Output Language: French');
+    expect(telegram.sendMessage.mock.calls.at(-1)?.[1]).toContain('Output Language: Traditional Chinese');
     expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({
-      offset: 7, chats: { '42': { step: 'confirm', topics: 'AI Agents', analysisAngles: 'Product Strategy', outputLanguage: 'french', deliveryMode: 'text_and_audio' } },
+      offset: 7, chats: { '42': { step: 'confirm', topics: 'AI Agents', analysisAngles: 'Product Strategy', outputLanguage: 'traditional_chinese', deliveryMode: 'text_and_audio' } },
     });
 
     await bot.handleUpdate({ update_id: 6, message: { chat: { id: 42 }, text: '/start' } });

@@ -8,6 +8,8 @@ dependencies = [
   "numpy>=2,<3",
   "scipy>=1.14,<2",
   "pocket-tts==2.1.0",
+  "kokoro>=0.9.4,<1",
+  "misaki[zh]>=0.9.4,<1",
 ]
 
 [dependency-groups]

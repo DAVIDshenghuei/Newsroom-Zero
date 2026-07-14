@@ -49,6 +49,16 @@ describe('LLM analysis schema and prompt', () => {
     expect(prompt).not.toContain('Do not use outside knowledge');
   });
 
+  it('requests Traditional Chinese prose while preserving source-language quotes', () => {
+    const prompt = buildAnalysisPrompt({
+      ...input,
+      preferences: { ...input.preferences, outputLanguage: 'traditional_chinese' },
+    });
+    expect(prompt).toContain('Generate every prose field in Traditional Chinese');
+    expect(prompt).toContain('supportingQuotes verbatim in their original source language');
+    expect(prompt).toContain('The category is moving toward practical products.');
+  });
+
   it('keeps the system prompt language-neutral', async () => {
     const { ANTHROPIC_ANALYSIS_SYSTEM_PROMPT } = await import('../analysis.js');
     expect(ANTHROPIC_ANALYSIS_SYSTEM_PROMPT).not.toMatch(/grounded English/i);

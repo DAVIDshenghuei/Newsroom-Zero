@@ -3,16 +3,17 @@ import { OUTPUT_LANGUAGES, OUTPUT_LANGUAGE_VALUES, getOutputLanguage } from '../
 import { EpisodeMetadataSchema } from '../voice.js';
 
 describe('output language catalog', () => {
-  it('contains the exact stable menu values and official Pocket defaults', () => {
+  it('contains the exact stable menu values and routes each language to its local TTS provider', () => {
     expect(OUTPUT_LANGUAGES).toEqual([
-      { value: 'english', label: 'English', analysisLanguage: 'English', pocketLanguage: 'english', pocketVoice: 'alba' },
-      { value: 'french', label: 'French', analysisLanguage: 'French', pocketLanguage: 'french_24l', pocketVoice: 'estelle' },
-      { value: 'german', label: 'German', analysisLanguage: 'German', pocketLanguage: 'german_24l', pocketVoice: 'juergen' },
-      { value: 'spanish', label: 'Spanish', analysisLanguage: 'Spanish', pocketLanguage: 'spanish_24l', pocketVoice: 'lola' },
-      { value: 'italian', label: 'Italian', analysisLanguage: 'Italian', pocketLanguage: 'italian', pocketVoice: 'giovanni' },
-      { value: 'portuguese', label: 'Portuguese', analysisLanguage: 'Portuguese', pocketLanguage: 'portuguese', pocketVoice: 'rafael' },
+      { value: 'english', label: 'English', analysisLanguage: 'English', ttsLanguage: 'english', ttsVoice: 'alba', ttsProvider: 'pocket-tts' },
+      { value: 'french', label: 'French', analysisLanguage: 'French', ttsLanguage: 'french_24l', ttsVoice: 'estelle', ttsProvider: 'pocket-tts' },
+      { value: 'german', label: 'German', analysisLanguage: 'German', ttsLanguage: 'german_24l', ttsVoice: 'juergen', ttsProvider: 'pocket-tts' },
+      { value: 'spanish', label: 'Spanish', analysisLanguage: 'Spanish', ttsLanguage: 'spanish_24l', ttsVoice: 'lola', ttsProvider: 'pocket-tts' },
+      { value: 'italian', label: 'Italian', analysisLanguage: 'Italian', ttsLanguage: 'italian', ttsVoice: 'giovanni', ttsProvider: 'pocket-tts' },
+      { value: 'portuguese', label: 'Portuguese', analysisLanguage: 'Portuguese', ttsLanguage: 'portuguese', ttsVoice: 'rafael', ttsProvider: 'pocket-tts' },
+      { value: 'traditional_chinese', label: 'Traditional Chinese', analysisLanguage: 'Traditional Chinese', ttsLanguage: 'chinese_traditional', ttsVoice: 'zf_xiaoxiao', ttsProvider: 'kokoro' },
     ]);
-    expect(getOutputLanguage('french')).toEqual(OUTPUT_LANGUAGES[1]);
+    expect(getOutputLanguage('traditional_chinese')).toEqual(OUTPUT_LANGUAGES[6]);
   });
 
   it('derives the runtime schema tuple from the canonical catalog', () => {

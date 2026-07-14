@@ -6,7 +6,7 @@
 apps/web/                                      Next.js landing page and latest episode player
 packages/newsroom/config/search-policies/     Topic and analysis policy JSON
 packages/newsroom/src/                        Search, ranking, Codex analysis, Fact Gate, voice, and Telegram bot
-services/pocket-tts-service/                  Local FastAPI Pocket TTS service
+services/pocket-tts-service/                  Local FastAPI Pocket/Kokoro TTS service
 ```
 
 Interactive pipeline:
@@ -20,7 +20,7 @@ Telegram selection
 → tier-aware ranking and deduplication
 → Codex analysis
 → claim-level Fact Gate
-→ text or Pocket TTS/ElevenLabs delivery
+→ text or local Pocket/Kokoro TTS with ElevenLabs fallback
 ```
 
 ## Commands

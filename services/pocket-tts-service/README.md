@@ -1,7 +1,7 @@
-# AI Newsroom Studio Pocket TTS Service
+# AI Newsroom Studio Local TTS Service
 
-Local FastAPI wrapper around [Kyutai Pocket TTS](https://github.com/kyutai-labs/pocket-tts).
-It keeps models and voice states in memory, converts generated PCM to MP3 with ffmpeg, and exposes the contract used by the Node Bot.
+Local FastAPI wrapper around [Kyutai Pocket TTS](https://github.com/kyutai-labs/pocket-tts) and [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M).
+It lazy-loads only the engine selected by the requested language, keeps loaded models and voice states in memory, converts generated PCM to MP3 with ffmpeg, and exposes the contract used by the Node Bot.
 
 ## Requirements
 
@@ -17,22 +17,23 @@ From the repository root:
 pnpm pocket:service
 ```
 
-The service binds only to `127.0.0.1:8001`. The first synthesis downloads Pocket TTS model and voice assets; subsequent requests reuse cached model and voice state.
+The service binds only to `127.0.0.1:8001`. The first synthesis for an engine downloads its model and voice assets; subsequent requests reuse the loaded engine. `/health` reports `loadedEngines` without eagerly loading either model.
 
 ## Supported languages
 
-The request validator accepts only these official model IDs:
+The request validator accepts only these local language routes:
 
-| Language | `language` | Default newsroom voice | Pocket model status |
+| Language | `language` | Default newsroom voice | Engine/model |
 |---|---|---|---|
-| English | `english` | `alba` | Standard |
-| French | `french_24l` | `estelle` | Preview 24l |
-| German | `german_24l` | `juergen` | Preview 24l |
-| Spanish | `spanish_24l` | `lola` | Preview 24l |
-| Italian | `italian` | `giovanni` | Standard |
-| Portuguese | `portuguese` | `rafael` | Standard |
+| English | `english` | `alba` | Pocket, standard |
+| French | `french_24l` | `estelle` | Pocket, preview 24l |
+| German | `german_24l` | `juergen` | Pocket, preview 24l |
+| Spanish | `spanish_24l` | `lola` | Pocket, preview 24l |
+| Italian | `italian` | `giovanni` | Pocket, standard |
+| Portuguese | `portuguese` | `rafael` | Pocket, standard |
+| Traditional Chinese | `chinese_traditional` | `zf_xiaoxiao` | Kokoro-82M, `lang_code=z` |
 
-Unsupported IDs return HTTP 422 before the engine loads. Chinese is not currently supported by Pocket TTS. The Node application can fall back to ElevenLabs, but it does not expose languages unsupported by the primary Pocket menu contract.
+Unsupported IDs return HTTP 422 before either engine loads. The Node application falls back to ElevenLabs when the selected local engine fails.
 
 ```bash
 curl http://127.0.0.1:8001/health
@@ -64,4 +65,4 @@ POCKET_TTS_API_KEY=replace-with-the-same-local-secret
 pnpm pocket:test
 ```
 
-Tests inject a fake synthesis engine, but exercise the real ffmpeg MP3 conversion. They do not download model weights.
+Tests inject fake synthesis engines, exercise provider routing and the real ffmpeg MP3 conversion, and do not download model weights.

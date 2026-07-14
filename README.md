@@ -2,7 +2,7 @@
 
 > A self-hosted newsroom that researches focused AI topics, checks every citation, and delivers text or spoken briefings through Telegram.
 
-[![Tests](https://img.shields.io/badge/tests-171%20passing-22c55e)](#quality-gates)
+[![Tests](https://img.shields.io/badge/tests-174%20passing-22c55e)](#quality-gates)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6)](https://www.typescriptlang.org/)
 [![Telegram](https://img.shields.io/badge/Telegram-Open%20Bot-26A5E4)](https://t.me/Newsroomhermesbot)
 [![Codex CLI](https://img.shields.io/badge/analysis-Codex%20CLI-111827)](https://github.com/openai/codex)
@@ -22,14 +22,14 @@ The English-only Telegram UI guides one listener through five single-select choi
 | Capability | Current behavior |
 |---|---|
 | Guided Telegram workflow | One topic, one analysis angle, one range, one output language, and one delivery mode per briefing |
-| Multilingual briefings | Generates prose in English, French, German, Spanish, Italian, or Portuguese while preserving supporting quotes verbatim |
+| Multilingual briefings | Generates prose in English, French, German, Spanish, Italian, Portuguese, or Traditional Chinese while preserving supporting quotes verbatim |
 | Policy-constrained discovery | Composes Topic + Angle JSON policies and sends native `includeDomains` / `excludeDomains` to Linkup |
 | Local source boundary | Rechecks URL hostnames locally, accepting an exact configured domain or its subdomains only |
 | Original-source relevance | Applies topic and angle terms to fetched original article content, never title/snippet matches alone |
 | Publication safety | Enforces 24-hour, 3-day, or 7-day windows and rejects unknown, future, and out-of-window dates |
 | Ranking and deduplication | Prefers tier 1 over tier 2, then uses policy matches, recency, and body quality while deduplicating |
 | Fact-gated analysis | Requires verified story IDs and exact supporting excerpts for generated factual claims |
-| Audio delivery | Uses local Pocket TTS first, with optional ElevenLabs fallback; failures degrade to cited text |
+| Audio delivery | Routes six languages to local Pocket TTS and Traditional Chinese to local Kokoro-82M, with optional ElevenLabs fallback; failures degrade to cited text |
 | Fail-closed operation | Zero eligible results stop before LLM analysis, TTS, episode writes, or Telegram publication |
 | Diagnostics | Writes composed policies, rejection reports, candidates, evidence, analysis, Fact Gate, and audio outcomes to local artifacts |
 
@@ -41,23 +41,24 @@ The public bot is currently available at [@Newsroomhermesbot](https://t.me/Newsr
 2. Choose one Topic: **AI Agents**, **AI Glasses**, **Claude Code**, **OpenAI API**, **AI x Blockchain**, or **AI Travel**.
 3. Choose one Angle: **Startup Opportunities**, **Product Strategy**, **Technical Trends**, or **Investment Signals**.
 4. Choose one range: **Past 24 Hours**, **Past 3 Days**, or **Past 7 Days**.
-5. Choose an output language: **English**, **French**, **German**, **Spanish**, **Italian**, or **Portuguese**.
+5. Choose an output language: **English**, **French**, **German**, **Spanish**, **Italian**, **Portuguese**, or **Traditional Chinese**.
 6. Choose **Text Only** or **Text + Audio**.
 7. Review the confirmation and press **Generate Now**.
 8. Receive a fact-gated briefing with source links in the same Telegram chat.
 
 The output choice affects generated prose and per-call TTS settings only. It does not change discovery domains, publication windows, or relevance rules, and supporting quotes remain exact excerpts in the source language.
 
-| Output | Pocket language/model | Primary voice |
-|---|---|---|
-| English | `english` | `alba` |
-| French | `french_24l` preview | `estelle` |
-| German | `german_24l` preview | `juergen` |
-| Spanish | `spanish_24l` preview | `lola` |
-| Italian | `italian` | `giovanni` |
-| Portuguese | `portuguese` | `rafael` |
+| Output | Local engine | Language/model | Primary voice |
+|---|---|---|---|
+| English | Pocket TTS | `english` | `alba` |
+| French | Pocket TTS | `french_24l` preview | `estelle` |
+| German | Pocket TTS | `german_24l` preview | `juergen` |
+| Spanish | Pocket TTS | `spanish_24l` preview | `lola` |
+| Italian | Pocket TTS | `italian` | `giovanni` |
+| Portuguese | Pocket TTS | `portuguese` | `rafael` |
+| Traditional Chinese | Kokoro-82M | `chinese_traditional` / `lang_code=z` | `zf_xiaoxiao` |
 
-Chinese is not currently available through Pocket TTS and is not offered in the menu. ElevenLabs with `eleven_multilingual_v2` remains the configured fallback, not an additional menu capability.
+ElevenLabs with `eleven_multilingual_v2` remains the configured fallback, not an additional menu capability.
 
 ## Search policy
 
@@ -100,10 +101,14 @@ flowchart TD
     F -- Blocked --> D
     F -- Approved --> M{Delivery mode}
     M -- Text Only --> T[Telegram cited text]
-    M -- Text + Audio --> V[Pocket TTS]
-    V -- Failure --> E[Optional ElevenLabs fallback]
+    M -- Text + Audio --> V{Local TTS route}
+    V -- Six Pocket languages --> P[Pocket TTS]
+    V -- Traditional Chinese --> Q[Kokoro-82M]
+    P -- Failure --> E[Optional ElevenLabs fallback]
+    Q -- Failure --> E
     E -- Failure --> T
-    V -- Success --> A[Telegram MP3 + latest episode]
+    P -- Success --> A[Telegram MP3 + latest episode]
+    Q -- Success --> A
     E -- Success --> A
 ```
 
@@ -115,7 +120,7 @@ The standalone RSS commands remain available for compatibility, while the intera
 - Next.js 14 for the landing page and latest episode player
 - Linkup Search over direct HTTPS for discovery and original-source fetching
 - Official OpenAI Codex CLI with subscription OAuth and `gpt-5.6-sol` for structured analysis
-- Python, FastAPI, Kyutai Pocket TTS, ffmpeg, and optional ElevenLabs fallback
+- Python, FastAPI, Kyutai Pocket TTS, Kokoro-82M with Misaki Chinese G2P, ffmpeg, and optional ElevenLabs fallback
 - Telegram Bot API for conversation state and delivery
 - A retained Anthropic analysis adapter with injected contract tests; it is not the current bot runtime
 
@@ -127,7 +132,7 @@ The standalone RSS commands remain available for compatibility, while the intera
 - pnpm 10 or newer
 - The official Codex CLI installed and authenticated with subscription OAuth (`codex login`)
 - A Telegram bot token and Linkup API key
-- Python 3.10–3.14, `uv`, and `ffmpeg` for local Pocket TTS
+- Python 3.10–3.14, `uv`, and `ffmpeg` for the local Pocket/Kokoro TTS service
 
 This project is designed and tested with Codex subscription OAuth: run `codex login` before starting the bot. Codex may support other authentication methods, but they are outside this project's verified setup; the application does not enforce a particular Codex authentication method at runtime. The bot launches Codex as an ephemeral, read-only subprocess, using `gpt-5.6-sol` by default.
 
@@ -171,7 +176,7 @@ pnpm --filter @ai-newsroom-studio/web dev
 
 The landing page is at <http://localhost:3000> and the latest episode page is at <http://localhost:3000/episodes/latest>.
 
-Start Pocket TTS in a second terminal:
+Start the local Pocket/Kokoro TTS service in a second terminal:
 
 ```bash
 pnpm pocket:service
@@ -211,7 +216,7 @@ Then add the menu label to the bot's topic choices and update the search-policy 
 
 ## Quality gates
 
-The verified TypeScript baseline is **171 tests passing**. Pocket TTS has a separate **6-test** Python suite.
+The verified TypeScript baseline is **174 tests passing**. The local Pocket/Kokoro TTS service has a separate **9-test** Python suite.
 
 ```bash
 pnpm test
@@ -220,7 +225,7 @@ pnpm build
 pnpm pocket:test
 ```
 
-The TypeScript suite covers schemas, policy composition, native Linkup domain options, hostname boundaries, original-only relevance, publication windows, tier-aware ranking and deduplication, zero-result early exits, Codex analysis, Fact Gate behavior, TTS fallback, Telegram delivery, and web repositories. The Python suite exercises Pocket TTS HTTP validation, authentication, lazy engine reuse, safe errors, and MP3 conversion.
+The TypeScript suite covers schemas, policy composition, native Linkup domain options, hostname boundaries, original-only relevance, publication windows, tier-aware ranking and deduplication, zero-result early exits, Codex analysis, Fact Gate behavior, Pocket/Kokoro routing, TTS fallback, Telegram delivery, and web repositories. The Python suite exercises HTTP validation, authentication, per-provider lazy engine reuse, Kokoro chunk concatenation, safe errors, and MP3 conversion.
 
 ## Repository layout
 

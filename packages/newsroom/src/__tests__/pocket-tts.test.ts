@@ -43,10 +43,25 @@ describe('FallbackVoiceSynthesizer', () => {
     expect(fallback.synthesize).not.toHaveBeenCalled();
   });
 
-  it('uses ElevenLabs only after Pocket fails', async () => {
+  it('records Kokoro as the primary provider for Traditional Chinese', async () => {
+    const primary = { synthesize: vi.fn().mockResolvedValue(mp3) };
+    const result = await new FallbackVoiceSynthesizer({ primary, primaryVoiceId: 'alba' })
+      .synthesizeWithOutcome('繁體中文新聞', {
+        language: 'chinese_traditional', voiceId: 'zf_xiaoxiao', provider: 'kokoro',
+      });
+    expect(result).toEqual({ audio: mp3, provider: 'kokoro', fallbackUsed: false });
+    expect(primary.synthesize).toHaveBeenCalledWith(
+      'zf_xiaoxiao', '繁體中文新聞', { language: 'chinese_traditional' },
+    );
+  });
+
+  it('uses ElevenLabs only after the local provider fails', async () => {
     const primary = { synthesize: vi.fn().mockRejectedValue(new Error('down')) };
     const fallback = { synthesize: vi.fn().mockResolvedValue(mp3) };
-    const result = await new FallbackVoiceSynthesizer({ primary, fallback, primaryVoiceId: 'alba', fallbackVoiceId: 'eleven' }).synthesizeWithOutcome('Briefing');
+    const result = await new FallbackVoiceSynthesizer({ primary, fallback, primaryVoiceId: 'alba', fallbackVoiceId: 'eleven' })
+      .synthesizeWithOutcome('繁體中文新聞', {
+        language: 'chinese_traditional', voiceId: 'zf_xiaoxiao', provider: 'kokoro',
+      });
     expect(result).toEqual({ audio: mp3, provider: 'elevenlabs', fallbackUsed: true });
   });
 
