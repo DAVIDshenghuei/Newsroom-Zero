@@ -64,12 +64,134 @@ const expectEpisodeSentinels = async (directory: string, sentinels: { metadata: 
 };
 
 describe('LLM personalized briefing generator', () => {
+  it('shadow-writes stage observations and stays nonblocking with a fixed safe warning', async () => {
+    const analysisGenerator: AnalysisGenerator = { generate: vi.fn(async ({ stories }) => validAnalysis(stories[0].id)) };
+    const harness = await setup(analysisGenerator);
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const ledger = {
+      startRun: vi.fn(() => 'run_00000000-0000-4000-8000-000000000000'),
+      observe: vi.fn(() => { throw new Error('database path and secret'); }),
+      finalizeRun: vi.fn(),
+    };
+    const generate = createBriefingGenerator({
+      linkup: { search: harness.search, fetch: harness.fetch, fetchDocument: harness.fetchDocument },
+      analysisGenerator, synthesizer: { synthesize: harness.synthesize },
+      telegram: { publish: harness.publish, sendMessage: harness.sendMessage }, ledger,
+      artifactsDirectory: join(harness.directory, 'artifacts-ledger'), episodesDirectory: join(harness.directory, 'episodes-ledger'),
+      now: () => new Date('2026-07-11T12:00:00.000Z'),
+    });
+    await expect(generate('private-chat-id', textPrefs)).resolves.toBeUndefined();
+    expect(ledger.startRun).toHaveBeenCalledWith({ windowHours: 72 });
+    expect(JSON.stringify(ledger.startRun.mock.calls)).not.toContain('ai-glasses');
+    expect(JSON.stringify(ledger.startRun.mock.calls)).not.toContain('product-strategy');
+    expect(JSON.stringify(ledger.startRun.mock.calls)).not.toContain('private-chat-id');
+    expect(ledger.finalizeRun).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ status: 'completed' }));
+    expect(warning).toHaveBeenCalledWith('[RunLedger] WRITE_FAILED');
+    expect(warning.mock.calls.flat().join(' ')).not.toContain('secret');
+    warning.mockRestore();
+  });
+
+  it('persists normalized ranking explanation for selected stories without changing output', async () => {
+    const analysisGenerator: AnalysisGenerator = { generate: vi.fn(async ({ stories }) => validAnalysis(stories[0].id)) };
+    const harness = await setup(analysisGenerator);
+    const ledger = {
+      startRun: vi.fn(() => 'run_00000000-0000-4000-8000-000000000000'),
+      observe: vi.fn(), finalizeRun: vi.fn(),
+    };
+    const generate = createBriefingGenerator({
+      linkup: { search: harness.search, fetch: harness.fetch, fetchDocument: harness.fetchDocument },
+      analysisGenerator, synthesizer: { synthesize: harness.synthesize },
+      telegram: { publish: harness.publish, sendMessage: harness.sendMessage }, ledger,
+      artifactsDirectory: join(harness.directory, 'artifacts-ranking-ledger'),
+      episodesDirectory: join(harness.directory, 'episodes-ranking-ledger'),
+      now: () => new Date('2026-07-11T12:00:00.000Z'),
+    });
+    await expect(generate('42', textPrefs)).resolves.toBeUndefined();
+    expect(ledger.observe).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      stage: 'ranking', reasonCode: 'RANK_SELECTED',
+      ranking: expect.objectContaining({
+        sourceAuthority: expect.any(Number), policyRelevance: expect.any(Number),
+        recency: expect.any(Number), bodyCompleteness: expect.any(Number),
+        explanationCodes: expect.any(Array),
+      }),
+    }));
+    expect(harness.publish).not.toHaveBeenCalled();
+    expect(harness.sendMessage).toHaveBeenCalled();
+  });
+
+  it('records a Fact Gate block with fixed codes and does not voice or publish', async () => {
+    const analysisGenerator: AnalysisGenerator = {
+      generate: vi.fn(async ({ stories }) => {
+        const analysis = validAnalysis(stories[0].id);
+        return {
+          ...analysis,
+          executiveSummary: {
+            ...analysis.executiveSummary,
+            supportingQuotes: [{ storyId: stories[0].id, quote: 'This quotation is not in the public source.' }],
+          },
+        };
+      }),
+    };
+    const harness = await setup(analysisGenerator);
+    const ledger = { startRun: vi.fn(() => 'run_00000000-0000-4000-8000-000000000000'), observe: vi.fn(), finalizeRun: vi.fn() };
+    const generate = createBriefingGenerator({
+      linkup: { search: harness.search, fetch: harness.fetch, fetchDocument: harness.fetchDocument },
+      analysisGenerator, synthesizer: { synthesize: harness.synthesize },
+      telegram: { publish: harness.publish, sendMessage: harness.sendMessage }, ledger,
+      artifactsDirectory: join(harness.directory, 'artifacts-gate'), episodesDirectory: join(harness.directory, 'episodes-gate'),
+      now: () => new Date('2026-07-11T12:00:00.000Z'),
+    });
+    await expect(generate('42', audioPrefs)).rejects.toThrow('Fact Gate blocked');
+    expect(ledger.observe).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      stage: 'fact_gate', outcome: 'blocked', reasonCode: 'FACT_GATE_BLOCKED',
+    }));
+    expect(ledger.finalizeRun).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      status: 'blocked', reasonCode: 'FACT_GATE_BLOCKED',
+    }));
+    expect(harness.synthesize).not.toHaveBeenCalled();
+    expect(harness.publish).not.toHaveBeenCalled();
+  });
+
+  it('observes every policy-eligible ranking candidate without changing the selected top three', async () => {
+    const analysisGenerator: AnalysisGenerator = { generate: vi.fn().mockRejectedValue(new Error('stop after ranking')) };
+    const harness = await setup(analysisGenerator);
+    harness.search.mockResolvedValue(Array.from({ length: 4 }, (_, index) => ({
+      ...searchResult, name: `AI Glasses verified feature ${index}`, url: `https://meta.com/story-${index}`,
+    })));
+    harness.fetchDocument.mockResolvedValue({
+      markdown: 'AI Glasses product strategy feature with practical product information.',
+      rawHtml: '<meta property="article:published_time" content="2026-07-10T09:30:00Z">',
+    });
+    const ledger = { startRun: vi.fn(() => 'run_00000000-0000-4000-8000-000000000000'), observe: vi.fn(), finalizeRun: vi.fn() };
+    const generate = createBriefingGenerator({
+      linkup: { search: harness.search, fetch: harness.fetch, fetchDocument: harness.fetchDocument },
+      analysisGenerator, synthesizer: { synthesize: harness.synthesize },
+      telegram: { publish: harness.publish, sendMessage: harness.sendMessage }, ledger,
+      artifactsDirectory: join(harness.directory, 'artifacts-ranking'), episodesDirectory: join(harness.directory, 'episodes-ranking'),
+      now: () => new Date('2026-07-11T12:00:00.000Z'),
+    });
+    await expect(generate('42', textPrefs)).rejects.toThrow('stop after ranking');
+    const rankingCalls = ledger.observe.mock.calls.map(([, value]) => value).filter(({ stage }) => stage === 'ranking');
+    expect(rankingCalls).toHaveLength(4);
+    expect(rankingCalls.filter(({ reasonCode }) => reasonCode === 'RANK_SELECTED')).toHaveLength(3);
+    expect(rankingCalls.filter(({ reasonCode }) => reasonCode === 'RANK_NOT_SELECTED')).toHaveLength(1);
+  });
   it('rejects disallowed domains before fetch and writes safe policy diagnostics', async () => {
     const analysisGenerator: AnalysisGenerator = { generate: vi.fn() };
     const harness = await setup(analysisGenerator);
     const sentinels = await seedEpisodeSentinels(harness.directory);
     harness.search.mockResolvedValue([{ ...searchResult, url: 'https://evil-meta.com/story' }]);
-    await expect(harness.generate('42', textPrefs)).rejects.toThrow('No stories matched');
+    const ledger = { startRun: vi.fn(() => 'run_00000000-0000-4000-8000-000000000000'), observe: vi.fn(), finalizeRun: vi.fn() };
+    const generate = createBriefingGenerator({
+      linkup: { search: harness.search, fetch: harness.fetch, fetchDocument: harness.fetchDocument },
+      analysisGenerator, synthesizer: { synthesize: harness.synthesize },
+      telegram: { publish: harness.publish, sendMessage: harness.sendMessage }, ledger,
+      artifactsDirectory: join(harness.directory, 'artifacts'), episodesDirectory: join(harness.directory, 'episodes'),
+      now: () => new Date('2026-07-11T12:00:00.000Z'),
+    });
+    await expect(generate('42', textPrefs)).rejects.toThrow('No stories matched');
+    expect(ledger.observe.mock.calls.filter(([, value]) => value.stage === 'source' && value.outcome === 'rejected')).toHaveLength(1);
+    expect(ledger.observe.mock.calls.filter(([, value]) => value.stage === 'policy')).toHaveLength(0);
     expect(harness.fetchDocument).not.toHaveBeenCalled();
     expect(analysisGenerator.generate).not.toHaveBeenCalled();
     const policy = JSON.parse(await readFile(join(harness.directory, 'artifacts', 'search-policy.json'), 'utf8'));
@@ -101,6 +223,26 @@ describe('LLM personalized briefing generator', () => {
     expect(harness.publish).not.toHaveBeenCalled();
     await expectEpisodeSentinels(harness.directory, sentinels);
   });
+
+  it('records formatting-only original markdown as a failed fetch', async () => {
+    const analysisGenerator: AnalysisGenerator = { generate: vi.fn() };
+    const harness = await setup(analysisGenerator);
+    harness.fetchDocument.mockResolvedValue({ markdown: ' \n\t ', rawHtml: '<meta property="article:published_time" content="2026-07-10T09:30:00Z">' });
+    const ledger = { startRun: vi.fn(() => 'run_00000000-0000-4000-8000-000000000000'), observe: vi.fn(), finalizeRun: vi.fn() };
+    const generate = createBriefingGenerator({
+      linkup: { search: harness.search, fetch: harness.fetch, fetchDocument: harness.fetchDocument },
+      analysisGenerator, synthesizer: { synthesize: harness.synthesize },
+      telegram: { publish: harness.publish, sendMessage: harness.sendMessage }, ledger,
+      artifactsDirectory: join(harness.directory, 'artifacts-empty-original'), episodesDirectory: join(harness.directory, 'episodes-empty-original'),
+      now: () => new Date('2026-07-11T12:00:00.000Z'),
+    });
+    await expect(generate('42', textPrefs)).rejects.toThrow('No stories matched');
+    expect(ledger.observe).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      stage: 'original', outcome: 'rejected', reasonCode: 'ORIGINAL_FETCH_FAILED',
+    }));
+    expect(analysisGenerator.generate).not.toHaveBeenCalled();
+  });
+
   it('passes the exact window to search and reuses the pre-ranking original fetch', async () => {
     const analysisGenerator: AnalysisGenerator = { generate: vi.fn(async ({ stories }) => validAnalysis(stories[0].id)) };
     const harness = await setup(analysisGenerator);

@@ -8,6 +8,7 @@ import { DEFAULT_ELEVENLABS_VOICE_ID, type VoiceSynthesizer } from './voice.js';
 import { FallbackVoiceSynthesizer, PocketTtsClient } from './pocket-tts.js';
 import { DocumentVoiceRepository, DocumentVoiceService } from './document-voice.js';
 import { DocumentVoiceTelegramFlow } from './document-telegram.js';
+import { NewsroomRunLedger } from './run-ledger.js';
 
 const required = (name: string): string => {
   const value = process.env[name];
@@ -47,6 +48,9 @@ async function main(): Promise<void> {
   }
 
   const store = new BotStateStore(resolve(process.cwd(), 'artifacts/bot-state.json'));
+  let ledger: NewsroomRunLedger | undefined;
+  try { ledger = new NewsroomRunLedger({ path: resolve(process.cwd(), 'artifacts/newsroom-ledger.sqlite') }); }
+  catch { console.warn('[RunLedger] OPEN_FAILED'); }
   const documentRepository = new DocumentVoiceRepository({
     root: resolve(process.cwd(), 'artifacts/document-voice-jobs'),
     emit: (event) => { console.log(JSON.stringify({ type: 'document_voice_event', ...event })); },
@@ -70,7 +74,7 @@ async function main(): Promise<void> {
   const bot = new NewsroomBot({
     store, telegram, documentVoice,
     generate: createBriefingGenerator({
-      telegram, linkup, analysisGenerator, synthesizer,
+      telegram, linkup, analysisGenerator, synthesizer, ledger,
       voiceId: process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID,
     }),
   });
@@ -78,6 +82,7 @@ async function main(): Promise<void> {
   await documentVoice?.recover();
   const cleanupTimer = setInterval(() => {
     void documentRepository.cleanupExpired().catch(() => console.error('Document job cleanup failed'));
+    try { ledger?.cleanupExpired(); } catch { console.warn('[RunLedger] CLEANUP_FAILED'); }
   }, 60_000);
   cleanupTimer.unref();
   let running = true;
@@ -95,6 +100,7 @@ async function main(): Promise<void> {
     }
   }
   clearInterval(cleanupTimer);
+  try { ledger?.close(); } catch { console.warn('[RunLedger] CLOSE_FAILED'); }
 }
 
 main().catch((error: unknown) => {

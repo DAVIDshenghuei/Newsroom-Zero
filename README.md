@@ -66,6 +66,18 @@ The bot runs cleanup independently from polling and speech generation. If the bo
 
 Analytics events contain safe operational properties such as file type, size bucket, character bucket, language, provider, duration, processing time, and error code. They do not contain the source filename or extracted prose.
 
+## Newsroom Run Ledger
+
+The optional news pipeline ledger is an operational SQLite record at `artifacts/newsroom-ledger.sqlite`. It shadow-records fixed stage outcomes, public source names, hostnames and canonical article URLs, bounded ranking components, and aggregate counts. It never stores Telegram chat or owner IDs, user-entered selections, document content, article bodies or quotations, prompts, raw errors, credentials, or secrets. Ledger writes are nonblocking and cannot change a briefing's selection, ordering, or delivery.
+
+Rows have a 24-hour logical retention deadline with foreign-key cascade deletion. While the bot is running, the ledger schedules cleanup for the earliest exact deadline and keeps a periodic sweep as a fallback. Every open, read, and write also removes expired runs before proceeding, so expired rows cannot be returned or extended. If the process is offline at the deadline, physical deletion occurs synchronously on the next ledger open; no background deletion can run while the application itself is stopped. SQLite runs with WAL journaling and foreign keys enabled. Operator queries emit JSON and validate limits and run IDs:
+
+```bash
+pnpm newsroom:ledger recent --limit 20
+pnpm newsroom:ledger run run_00000000-0000-4000-8000-000000000000
+pnpm newsroom:ledger sources --limit 20
+```
+
 ## Architecture
 
 ```mermaid
@@ -192,7 +204,7 @@ pnpm build
 pnpm pocket:test
 ```
 
-The verified TypeScript baseline is **235 tests passing**. The local Pocket/Kokoro service has a separate **9-test** Python suite.
+The verified TypeScript baseline is **256 tests passing**. The local Pocket/Kokoro service has a separate **9-test** Python suite.
 
 The TypeScript suite covers schemas, policy composition, domain restrictions, hostname boundaries, original-only relevance, publication windows, ranking, zero-result exits, Codex analysis, the Fact Gate, speech routing, fallback behavior, Telegram delivery, document extraction and chunking, privacy-safe events, audio validation, protected episode artifacts, brand claims, and web repositories. The Python suite covers HTTP validation, authentication, lazy engine reuse, Kokoro chunk concatenation, safe errors, and MP3 conversion.
 

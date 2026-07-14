@@ -20,6 +20,7 @@ import type { SynthesizeOutcomeFunction, VoiceSynthesisOutcome } from './pocket-
 import { buildSearchQuery, composeSearchPolicy, filterBySearchPolicy, filterBySourceDomain } from './search-policy.js';
 import { getOutputLanguage, OUTPUT_LANGUAGES, OUTPUT_LANGUAGE_VALUES, type OutputLanguage } from './languages.js';
 import type { DocumentTelegramContext, DocumentVoiceTelegramFlow } from './document-telegram.js';
+import { rankingComponents, type NewsroomRunLedger } from './run-ledger.js';
 
 export const TIME_RANGES = ['Past 24 Hours', 'Past 3 Days', 'Past 7 Days'] as const;
 export type TimeRange = typeof TIME_RANGES[number];
@@ -385,14 +386,41 @@ export interface GeneratorOptions {
   episodesDirectory?: string;
   voiceId?: string;
   now?: () => Date;
+  ledger?: Pick<NewsroomRunLedger, 'startRun' | 'observe' | 'finalizeRun'>;
 }
+
+const ledgerCandidateIdentity = (candidate: StoryCandidate) => ({
+  candidateId: candidate.id,
+  fetchedAt: candidate.fetchedAt,
+  hash: createHash('sha256').update(JSON.stringify({
+    candidateId: candidate.id, fetchedAt: candidate.fetchedAt,
+    canonicalUrl: candidate.url ? (() => { const url = new URL(candidate.url); url.search = ''; url.hash = ''; return url.toString(); })() : undefined,
+    publishedAt: candidate.publishedAt,
+  })).digest('hex'),
+});
 
 export function createBriefingGenerator(options: GeneratorOptions) {
   return async (chatId: string, preferences: ResearchPreferences): Promise<void> => {
+    let runId: string | undefined;
+    let candidateCount = 0;
+    let selectedCount = 0;
+    let terminalReason: 'NO_ELIGIBLE_STORIES' | 'FACT_GATE_BLOCKED' | undefined;
+    const ledgerWrite = (write: () => void): void => {
+      if (!options.ledger) return;
+      try { write(); } catch { console.warn('[RunLedger] WRITE_FAILED'); }
+    };
+    const ledgerFinalize = (write: () => void): void => {
+      if (!options.ledger) return;
+      try { write(); } catch { console.warn('[RunLedger] FINALIZE_FAILED'); }
+    };
+    try {
     const now = (options.now ?? (() => new Date()))();
     const createdAt = now.toISOString();
     const publicationWindow = resolvePublicationWindow(preferences.timeRange, now);
     const searchPolicy = await composeSearchPolicy(preferences.topics, preferences.analysisAngles, publicationWindow);
+    ledgerWrite(() => { runId = options.ledger!.startRun({
+      windowHours: Math.round((Date.parse(publicationWindow.to) - Date.parse(publicationWindow.from)) / 3_600_000),
+    }); });
     const searchQuery = buildSearchQuery(searchPolicy);
     const searchOptions = {
       ...publicationWindow,
@@ -402,7 +430,21 @@ export function createBriefingGenerator(options: GeneratorOptions) {
     const candidates = linkupResultsToCandidates(
       await options.linkup.search(searchQuery, searchOptions), createdAt,
     );
+    candidateCount = candidates.length;
     const sourceReport = filterBySourceDomain(candidates, searchPolicy);
+    for (const item of sourceReport.evaluated) ledgerWrite(() => {
+      if (!runId) return;
+      const candidate = candidates.find(({ id }) => id === item.id)!;
+      options.ledger!.observe(runId, {
+        ...ledgerCandidateIdentity(candidate),
+        stage: 'source', outcome: item.accepted ? 'accepted' : 'rejected',
+        reasonCode: item.accepted ? 'SOURCE_ALLOWED'
+          : item.reasons.includes('excluded source domain') ? 'SOURCE_DOMAIN_EXCLUDED'
+            : candidate.url ? 'SOURCE_DOMAIN_NOT_ALLOWED' : 'SOURCE_URL_INVALID', source: candidate.source,
+        hostname: candidate.url ? new URL(candidate.url).hostname : undefined,
+        canonicalUrl: candidate.url, sourceTier: item.sourceTier,
+      });
+    });
     const sourceEligible = new Set(sourceReport.eligibleIds);
     const fetchedOriginals = new Map<string, { markdown?: string; error?: string }>();
     const sourceCandidates = candidates.filter(({ id }) => sourceEligible.has(id));
@@ -422,6 +464,18 @@ export function createBriefingGenerator(options: GeneratorOptions) {
       }
     }));
     const filterReport = filterCandidatesByPublicationWindow(datedCandidates, publicationWindow);
+    for (const candidate of datedCandidates) ledgerWrite(() => {
+      if (!runId) return;
+      const fetched = fetchedOriginals.get(candidate.id);
+      const originalFetched = !!fetched?.markdown?.trim();
+      options.ledger!.observe(runId, {
+        ...ledgerCandidateIdentity(candidate),
+        stage: 'original', outcome: originalFetched ? 'accepted' : 'rejected',
+        reasonCode: originalFetched ? 'ORIGINAL_FETCHED' : 'ORIGINAL_FETCH_FAILED', source: candidate.source,
+        hostname: candidate.url ? new URL(candidate.url).hostname : undefined, canonicalUrl: candidate.url,
+        publishedAt: candidate.publishedAt,
+      });
+    });
     const artifactsDirectory = options.artifactsDirectory ?? resolve(process.cwd(), 'artifacts');
     const policyReport = filterBySearchPolicy(candidates.map((candidate) => ({
       id: candidate.id, url: candidate.url, name: candidate.headline, content: candidate.body,
@@ -432,12 +486,62 @@ export function createBriefingGenerator(options: GeneratorOptions) {
       'story-candidates.json': datedCandidates, 'publication-filter-report.json': filterReport,
     });
     const policyEligible = new Set(policyReport.eligibleIds);
+    for (const item of policyReport.evaluated) {
+      if (!sourceEligible.has(item.id)) continue;
+      ledgerWrite(() => {
+        if (!runId) return;
+        const candidate = candidates.find(({ id }) => id === item.id)!;
+        options.ledger!.observe(runId, {
+          ...ledgerCandidateIdentity(candidate),
+          stage: 'policy', outcome: item.accepted ? 'accepted' : 'rejected',
+          reasonCode: item.accepted ? 'POLICY_ACCEPTED'
+            : item.reasons.includes('excluded keyword') ? 'POLICY_EXCLUDED_KEYWORD'
+              : item.reasons.includes('missing analysis keyword') ? 'POLICY_MISSING_ANALYSIS' : 'POLICY_MISSING_TOPIC', source: candidate.source,
+          hostname: candidate.url ? new URL(candidate.url).hostname : undefined,
+          canonicalUrl: candidate.url, sourceTier: item.sourceTier,
+        });
+      });
+    }
+    for (const item of filterReport.rejected) ledgerWrite(() => {
+      if (!runId) return;
+      const candidate = datedCandidates.find(({ id }) => id === item.id)!;
+      const reasonCode = item.reason === 'future publishedAt' ? 'PUBLICATION_FUTURE'
+        : item.reason === 'outside publication window' ? 'PUBLICATION_OUT_OF_WINDOW' : 'PUBLICATION_MISSING';
+      options.ledger!.observe(runId, {
+        ...ledgerCandidateIdentity(candidate), stage: 'publication', outcome: 'rejected', reasonCode, source: candidate.source,
+        hostname: candidate.url ? new URL(candidate.url).hostname : undefined,
+        canonicalUrl: candidate.url, publishedAt: item.publishedAt,
+      });
+    });
+    for (const candidate of filterReport.eligible) ledgerWrite(() => {
+      if (!runId) return;
+      options.ledger!.observe(runId, {
+        ...ledgerCandidateIdentity(candidate), stage: 'publication', outcome: 'accepted', reasonCode: 'PUBLICATION_ACCEPTED', source: candidate.source,
+        hostname: candidate.url ? new URL(candidate.url).hostname : undefined,
+        canonicalUrl: candidate.url, publishedAt: candidate.publishedAt,
+      });
+    });
     const eligible = filterReport.eligible.filter(({ id }) => policyEligible.has(id));
     const policyRanking = new Map(policyReport.evaluated.filter(({ accepted }) => accepted).map((item) => [item.id, {
       sourceTier: item.sourceTier!, matchedTerms: [...item.matchedTopicTerms, ...item.matchedAnalysisTerms, ...item.matchedPreferredTerms],
     }]));
     const stories = rankStories(eligible, policyRanking);
+    selectedCount = stories.length;
+    for (const story of stories) ledgerWrite(() => {
+      if (!runId) return;
+      options.ledger!.observe(runId, rankingComponents(story, publicationWindow));
+    });
+    const rankedIds = new Set(stories.map(({ id }) => id));
+    for (const candidate of eligible.filter(({ id }) => !rankedIds.has(id))) ledgerWrite(() => {
+      if (!runId) return;
+      options.ledger!.observe(runId, {
+        ...ledgerCandidateIdentity(candidate), stage: 'ranking', outcome: 'observed', reasonCode: 'RANK_NOT_SELECTED', source: candidate.source,
+        hostname: candidate.url ? new URL(candidate.url).hostname : undefined,
+        canonicalUrl: candidate.url, publishedAt: candidate.publishedAt,
+      });
+    });
     if (!stories.length) {
+      terminalReason = 'NO_ELIGIBLE_STORIES';
       if (sourceCandidates.length > 0 && !filterReport.eligible.length) throw new Error(`No stories were published within ${preferences.timeRange}. Please try a broader news range.`);
       throw new Error('No stories matched the selected topic and analysis policy. Please try another selection.');
     }
@@ -454,6 +558,14 @@ export function createBriefingGenerator(options: GeneratorOptions) {
     });
     const analysis = await options.analysisGenerator.generate({ preferences, stories, evidence });
     const factGate = runAnalysisFactGate(analysis, stories, evidence, createdAt, publicationWindow);
+    for (const story of stories) ledgerWrite(() => {
+      if (!runId) return;
+      options.ledger!.observe(runId, {
+        ...ledgerCandidateIdentity(story), stage: 'fact_gate', outcome: factGate.approved ? 'accepted' : 'blocked',
+        reasonCode: factGate.approved ? 'FACT_GATE_APPROVED' : 'FACT_GATE_BLOCKED', source: story.source,
+        hostname: new URL(story.canonicalUrl).hostname, canonicalUrl: story.canonicalUrl,
+      });
+    });
     const script = writeAnalysisBulletinScript(analysis, stories, createdAt, factGate.scriptStatus);
     const edition = EditionArtifactSchema.parse({
       id: `edition-${createdAt}`, createdAt, status: factGate.scriptStatus, rundownId: rundown.id,
@@ -465,7 +577,10 @@ export function createBriefingGenerator(options: GeneratorOptions) {
       'rundown.json': rundown, 'linkup-evidence.json': evidence,
       'llm-analysis.json': analysis, 'script.json': script, 'fact-gate.json': factGate, 'edition.json': edition,
     });
-    if (!factGate.approved) throw new Error(`Fact Gate blocked the briefing: ${factGate.reasons.join('; ')}`);
+    if (!factGate.approved) {
+      terminalReason = 'FACT_GATE_BLOCKED';
+      throw new Error(`Fact Gate blocked the briefing: ${factGate.reasons.join('; ')}`);
+    }
     if (script.status !== 'ready_for_voice') throw new Error('Voice generation refused: script must be ready_for_voice and Fact Gate must be approved');
 
     const bulletin = script.segments.map(({ text }) => concise(text)).filter(Boolean).join('\n\n');
@@ -540,6 +655,24 @@ export function createBriefingGenerator(options: GeneratorOptions) {
       }
     }
     await options.telegram.sendMessage(chatId, BOT_COPY.generationComplete);
+    ledgerFinalize(() => { if (runId) options.ledger!.finalizeRun(runId, {
+      status: 'completed', reasonCode: 'COMPLETED', candidateCount, selectedCount,
+    }); });
+    } catch (error) {
+      ledgerFinalize(() => {
+        if (!runId) return;
+        if (terminalReason === 'FACT_GATE_BLOCKED') options.ledger!.finalizeRun(runId, {
+          status: 'blocked', reasonCode: 'FACT_GATE_BLOCKED', candidateCount, selectedCount,
+        });
+        else if (terminalReason === 'NO_ELIGIBLE_STORIES') options.ledger!.finalizeRun(runId, {
+          status: 'blocked', reasonCode: 'NO_ELIGIBLE_STORIES', candidateCount, selectedCount,
+        });
+        else options.ledger!.finalizeRun(runId, {
+          status: 'failed', reasonCode: 'INTERNAL_FAILURE', candidateCount, selectedCount,
+        });
+      });
+      throw error;
+    }
   };
 }
 

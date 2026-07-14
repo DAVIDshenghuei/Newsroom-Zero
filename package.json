@@ -11,6 +11,7 @@
     "newsroom:voice": "pnpm --filter @ai-newsroom-studio/newsroom build && node --env-file=.env packages/newsroom/dist/voice-cli.js",
     "newsroom:publish-telegram": "pnpm --filter @ai-newsroom-studio/newsroom build && node --env-file=.env packages/newsroom/dist/telegram-cli.js",
     "newsroom:bot": "pnpm --filter @ai-newsroom-studio/newsroom build && node --env-file=.env packages/newsroom/dist/bot-cli.js",
+    "newsroom:ledger": "pnpm --filter @ai-newsroom-studio/newsroom build && node packages/newsroom/dist/run-ledger-cli.js",
     "pocket:service": "cd services/pocket-tts-service && uv run uvicorn --app-dir src pocket_service.app:app --host 127.0.0.1 --port 8001",
     "pocket:test": "cd services/pocket-tts-service && uv run --group dev pytest -q"
   },
